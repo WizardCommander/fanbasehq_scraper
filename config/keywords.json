@@ -1,0 +1,52 @@
+{
+  "milestones": {
+    "achievement_words": [
+      "record",
+      "milestone",
+      "first",
+      "youngest",
+      "oldest",
+      "most",
+      "highest",
+      "lowest",
+      "broke",
+      "breaking",
+      "set",
+      "reached",
+      "surpassed",
+      "passed",
+      "historic",
+      "history"
+    ],
+    "stat_words": [
+      "points",
+      "assists",
+      "rebounds",
+      "steals",
+      "blocks",
+      "threes",
+      "3-pointers",
+      "field goals",
+      "free throws",
+      "double-double",
+      "triple-double",
+      "minutes",
+      "games",
+      "career",
+      "season",
+      "rookie"
+    ],
+    "categories": {
+      "scoring": ["points", "scoring", "scored", "ppg"],
+      "assists": ["assists", "assist", "apg", "dimes"],
+      "rebounds": ["rebounds", "rebound", "rpg", "boards"],
+      "steals": ["steals", "steal", "spg"],
+      "blocks": ["blocks", "block", "bpg"],
+      "shooting": ["shooting", "fg%", "3pt%", "ft%", "field goal", "three-pointer"],
+      "league": ["WNBA", "league", "professional", "pro"],
+      "rookie": ["rookie", "first year", "debut"],
+      "team": ["team", "franchise"],
+      "award": ["award", "honor", "recognition", "trophy"]
+    }
+  }
+}

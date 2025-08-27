@@ -1,0 +1,36 @@
+{
+  "twitter_accounts": {
+    "milestone_accounts": [
+      "@PolymarketHoops",
+      "@FeverStats", 
+      "@realapp_",
+      "@wnba",
+      "@tlaww22"
+    ],
+    "shoe_accounts": [
+      "@nicekicks",
+      "@nikebasketball"
+    ],
+    "tunnel_fit_accounts": [
+      "@caitlinclarksty"
+    ],
+    "general_accounts": [
+      "@CClarkReport",
+      "@wnba"
+    ]
+  },
+  "instagram_accounts": {
+    "milestone_accounts": [
+      "@espnw",
+      "@sportscenter", 
+      "@indianafever"
+    ],
+    "tunnel_fit_accounts": [
+      "@caitlinclarkstyle"
+    ]
+  },
+  "notes": {
+    "source": "https://docs.google.com/spreadsheets/d/1eGIIF8qJkToVJcVEmMNzO2tTLuy_XsmPKvt0uaPkWfA/edit",
+    "focus": "Accounts that regularly post about Caitlin Clark, Indiana Fever, and WNBA content"
+  }
+}
