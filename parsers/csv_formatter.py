@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import List, Dict, Optional
 from dataclasses import asdict
 
-from utils.twitter_client import ScrapedTweet
+from utils.twitterapi_client import ScrapedTweet
 from parsers.ai_parser import MilestoneData
 from config.settings import CSV_ENCODING
 

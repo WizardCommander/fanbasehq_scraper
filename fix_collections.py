@@ -1,9 +1,9 @@
 """
 Compatibility fix for Python 3.12+ collections module
-This fixes the 'module collections has no attribute MutableSet' error
+This fixes aiohttp compatibility issues
 """
 
-import sys
+import collections
 import collections.abc
 
 # Fix for Python 3.12+ where MutableSet was moved to collections.abc
@@ -17,5 +17,5 @@ if not hasattr(collections, 'Sequence'):
     collections.Sequence = collections.abc.Sequence
 if not hasattr(collections, 'Iterable'):
     collections.Iterable = collections.abc.Iterable
-
-print("Collections compatibility fix applied for Python 3.12+")
+if not hasattr(collections, 'Callable'):
+    collections.Callable = collections.abc.Callable

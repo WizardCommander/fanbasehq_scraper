@@ -20,20 +20,23 @@ OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '')
 if not OPENAI_API_KEY:
     raise ValueError("OPENAI_API_KEY not found in .env file")
 
-# X.com Cookie Authentication
-X_COOKIES = os.getenv('X_COOKIES', '')
-if not X_COOKIES:
-    raise ValueError("X_COOKIES not found in .env file")
+# TwitterAPI.io Configuration
+TWITTER_API_KEY = os.getenv('TWITTER_API_KEY', '')
+if not TWITTER_API_KEY:
+    raise ValueError("TWITTER_API_KEY not found in .env file. Get your API key from https://twitterapi.io/dashboard")
 
-# Twitter/X.com Configuration
+# TwitterAPI.io Settings
+TWITTER_API_BASE_URL = "https://api.twitterapi.io"
+TWITTER_API_TIMEOUT = 30  # seconds
+TWEETS_PER_PAGE = 20  # TwitterAPI.io returns up to 20 tweets per page
+
+# Configuration Files
 TWITTER_ACCOUNTS_FILE = CONFIG_DIR / 'accounts.json'
-TWITTER_KEYWORDS_FILE = CONFIG_DIR / 'keywords.json'
 PLAYERS_FILE = CONFIG_DIR / 'players.json'
 
-# Scraping Configuration
-DEFAULT_RATE_LIMIT_DELAY = 5  # seconds between requests (increased for rate limiting)
+# TwitterAPI.io free tier: 1 request per 5 seconds
+DEFAULT_RATE_LIMIT_DELAY = 6  # seconds between requests (free tier limit)  
 MAX_RETRIES = 3
-REQUEST_TIMEOUT = 30  # seconds
 
 # CSV Configuration
 CSV_ENCODING = 'utf-8'

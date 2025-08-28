@@ -13,7 +13,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-# Apply compatibility fix for Python 3.12+
+# Fix Python 3.12 compatibility for aiohttp
 import fix_collections
 
 from scrapers.milestone_scraper import MilestoneScraper

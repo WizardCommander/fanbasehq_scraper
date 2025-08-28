@@ -10,10 +10,10 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from config.settings import (
-    CONFIG_DIR, PLAYERS_FILE, TWITTER_ACCOUNTS_FILE, TWITTER_KEYWORDS_FILE
+    CONFIG_DIR, PLAYERS_FILE, TWITTER_ACCOUNTS_FILE
 )
-from utils.twitter_client import search_milestone_tweets, ScrapedTweet
-from parsers.ai_parser import AIParser, filter_tweets_by_keywords
+from utils.twitterapi_client import search_milestone_tweets, ScrapedTweet
+from parsers.ai_parser import AIParser
 from parsers.csv_formatter import MilestoneCSVFormatter
 
 
@@ -40,7 +40,6 @@ class MilestoneScraper:
         # Load configurations
         self.player_config = self._load_player_config()
         self.accounts_config = self._load_accounts_config()
-        self.keywords_config = self._load_keywords_config()
         
         # Initialize components
         self.ai_parser = AIParser()
@@ -59,11 +58,6 @@ class MilestoneScraper:
     def _load_accounts_config(self) -> Dict:
         """Load accounts configuration"""
         with open(TWITTER_ACCOUNTS_FILE, 'r') as f:
-            return json.load(f)
-            
-    def _load_keywords_config(self) -> Dict:
-        """Load keywords configuration"""
-        with open(TWITTER_KEYWORDS_FILE, 'r') as f:
             return json.load(f)
     
     async def scrape_milestones(self) -> Dict:
@@ -116,14 +110,19 @@ class MilestoneScraper:
             logger.warning("No milestones found by AI parser")
             return {"count": 0, "milestones": [], "tweets": []}
         
-        # Step 4: Match milestones back to original tweet objects
+        # Step 4: Match milestones to their source tweets using tweet IDs
         milestone_tweets = []
+        tweet_lookup = {tweet.id: tweet for tweet in tweets}
+        
         for milestone in milestones:
-            # Find corresponding tweet object by matching any tweet in our dataset
-            for tweet in tweets:
-                if any(tweet_dict["id"] == tweet.id for tweet_dict in tweet_dicts):
-                    milestone_tweets.append(tweet)
-                    break
+            source_tweet = tweet_lookup.get(milestone.source_tweet_id)
+            if source_tweet:
+                milestone_tweets.append(source_tweet)
+            else:
+                logger.warning(f"Could not find source tweet {milestone.source_tweet_id} for milestone: {milestone.title}")
+                # Use first available tweet as fallback
+                if tweets:
+                    milestone_tweets.append(tweets[0])
         
         # Step 5: Write to CSV
         self.csv_formatter.write_milestones_to_csv(milestones, milestone_tweets)

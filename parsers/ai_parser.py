@@ -28,6 +28,7 @@ class MilestoneData:
     player_name: str
     date_context: str
     source_reliability: float  # 0-1 confidence score
+    source_tweet_id: str  # ID of the tweet this milestone came from
 
 
 class AIParser:
@@ -39,7 +40,7 @@ class AIParser:
             
         self.client = OpenAI(api_key=OPENAI_API_KEY)
         
-    def parse_milestone_tweet(self, tweet_text: str, tweet_url: str = "") -> Optional[MilestoneData]:
+    def parse_milestone_tweet(self, tweet_text: str, tweet_url: str = "", tweet_id: str = "") -> Optional[MilestoneData]:
         """
         Parse a tweet to extract milestone information using GPT
         
@@ -85,7 +86,8 @@ class AIParser:
                 previous_record=result.get('previous_record', ''),
                 player_name=result.get('player_name', ''),
                 date_context=result.get('date_context', ''),
-                source_reliability=result.get('source_reliability', 0.5)
+                source_reliability=result.get('source_reliability', 0.5),
+                source_tweet_id=tweet_id
             )
             
         except Exception as e:
@@ -148,7 +150,8 @@ Examples of NOT milestones:
             
             milestone = self.parse_milestone_tweet(
                 tweet_text=tweet.get('text', ''),
-                tweet_url=tweet.get('url', '')
+                tweet_url=tweet.get('url', ''),
+                tweet_id=tweet.get('id', '')
             )
             
             if milestone:
