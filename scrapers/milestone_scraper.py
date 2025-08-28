@@ -62,7 +62,7 @@ class MilestoneScraper:
     
     async def scrape_milestones(self) -> Dict:
         """
-        Main scraping method
+        Streaming scraping method with memory management
         
         Returns:
             Dictionary with scraping results
@@ -78,65 +78,122 @@ class MilestoneScraper:
         logger.info(f"Player variations: {player_variations}")
         logger.info(f"Milestone accounts: {milestone_accounts}")
         
-        # Step 1: Scrape tweets from milestone accounts
-        tweets = await search_milestone_tweets(
-            player=self.player,
-            player_variations=player_variations,
-            milestone_accounts=milestone_accounts,
-            start_date=self.start_date,
-            end_date=self.end_date,
-            limit=self.limit
-        )
+        # Initialize counters and CSV writer
+        total_tweets_processed = 0
+        total_milestones_found = 0
+        csv_initialized = False
         
-        if not tweets:
-            logger.warning("No tweets found")
-            return {"count": 0, "milestones": [], "tweets": []}
+        # Process each account/variation combination separately for memory efficiency
+        for account in milestone_accounts:
+            account_clean = account.lstrip('@')
+            
+            for variation in player_variations:
+                try:
+                    logger.info(f"Processing {account} × {variation}")
+                    
+                    # Step 1: Get tweets for this specific combination (small batch)
+                    tweets = await self._get_tweets_for_account_variation(
+                        account_clean, variation, self.start_date, self.end_date, self.limit
+                    )
+                    
+                    if not tweets:
+                        logger.info(f"No tweets found for {account} × {variation}")
+                        continue
+                    
+                    total_tweets_processed += len(tweets)
+                    logger.info(f"Found {len(tweets)} tweets for {account} × {variation}")
+                    
+                    # Step 2: Process tweets in streaming fashion
+                    milestones_batch = await self._process_tweets_streaming(tweets)
+                    
+                    if milestones_batch:
+                        # Step 3: Match milestones to their source tweets
+                        milestone_tweets = []
+                        tweet_lookup = {tweet.id: tweet for tweet in tweets}
+                        
+                        for milestone in milestones_batch:
+                            source_tweet = tweet_lookup.get(milestone.source_tweet_id)
+                            if source_tweet:
+                                milestone_tweets.append(source_tweet)
+                            else:
+                                logger.warning(f"Could not find source tweet for milestone: {milestone.title}")
+                                if tweets:  # Fallback to first tweet
+                                    milestone_tweets.append(tweets[0])
+                        
+                        # Step 4: Stream write to CSV (append mode)
+                        if not csv_initialized:
+                            self.csv_formatter.write_milestones_to_csv(milestones_batch, milestone_tweets)
+                            csv_initialized = True
+                        else:
+                            self.csv_formatter.append_milestones_to_csv(milestones_batch, milestone_tweets)
+                        
+                        total_milestones_found += len(milestones_batch)
+                        logger.info(f"Added {len(milestones_batch)} milestones from {account} × {variation}")
+                    
+                    # Step 4: Clear memory - let Python GC handle cleanup
+                    del tweets
+                    del milestones_batch
+                    
+                except Exception as e:
+                    logger.error(f"Error processing {account} × {variation}: {e}")
+                    continue
         
-        # Step 2: Convert tweets to format for AI parsing (skip keyword filtering)
-        tweet_dicts = []
-        for tweet in tweets:
-            tweet_dicts.append({
-                "text": tweet.text,
-                "url": tweet.url,
-                "id": tweet.id
-            })
-        
-        logger.info(f"Sending {len(tweet_dicts)} tweets directly to AI parser (no keyword filtering)")
-        
-        # Step 3: Parse all tweets with AI (GPT will filter for milestones)
-        milestones = self.ai_parser.batch_parse_tweets(tweet_dicts)
-        
-        if not milestones:
-            logger.warning("No milestones found by AI parser")
-            return {"count": 0, "milestones": [], "tweets": []}
-        
-        # Step 4: Match milestones to their source tweets using tweet IDs
-        milestone_tweets = []
-        tweet_lookup = {tweet.id: tweet for tweet in tweets}
-        
-        for milestone in milestones:
-            source_tweet = tweet_lookup.get(milestone.source_tweet_id)
-            if source_tweet:
-                milestone_tweets.append(source_tweet)
-            else:
-                logger.warning(f"Could not find source tweet {milestone.source_tweet_id} for milestone: {milestone.title}")
-                # Use first available tweet as fallback
-                if tweets:
-                    milestone_tweets.append(tweets[0])
-        
-        # Step 5: Write to CSV
-        self.csv_formatter.write_milestones_to_csv(milestones, milestone_tweets)
+        if total_milestones_found == 0:
+            logger.warning("No milestones found across all accounts/variations")
+            # Create empty CSV file
+            self.csv_formatter.write_milestones_to_csv([], [])
         
         results = {
-            "count": len(milestones),
-            "milestones": [milestone.title for milestone in milestones],
-            "tweets_scraped": len(tweets),
-            "tweets_sent_to_ai": len(tweet_dicts), 
+            "count": total_milestones_found,
+            "tweets_processed": total_tweets_processed,
             "output_file": str(self.output_file)
         }
         
-        logger.info(f"Scraping complete: {results}")
+        logger.info(f"Streaming scrape complete: {results}")
         return results
+    
+    async def _get_tweets_for_account_variation(
+        self, account: str, variation: str, start_date, end_date, limit: int
+    ) -> List[ScrapedTweet]:
+        """Get tweets for a specific account/variation combination"""
+        from utils.twitterapi_client import TwitterAPIClient
+        
+        client = TwitterAPIClient()
+        query = f'from:{account} "{variation}"'
+        
+        tweets = await client.search_tweets(
+            query=query,
+            start_date=start_date,
+            end_date=end_date,
+            limit=limit
+        )
+        
+        return tweets
+    
+    async def _process_tweets_streaming(self, tweets: List[ScrapedTweet]) -> List:
+        """Process tweets for milestones in streaming fashion"""
+        milestones = []
+        
+        for tweet in tweets:
+            # Process each tweet individually to minimize memory
+            tweet_dict = {
+                "text": tweet.text,
+                "url": tweet.url,
+                "id": tweet.id
+            }
+            
+            # Parse single tweet with AI
+            milestone = self.ai_parser.parse_milestone_tweet(
+                tweet_text=tweet_dict["text"],
+                tweet_url=tweet_dict["url"],
+                tweet_id=tweet_dict["id"]
+            )
+            
+            if milestone:
+                milestones.append(milestone)
+                logger.info(f"Found milestone: {milestone.title}")
+        
+        return milestones
         
     def run(self) -> Dict:
         """
