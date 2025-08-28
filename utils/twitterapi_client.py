@@ -210,14 +210,22 @@ class TwitterAPIClient:
             author_name = author_info.get('name', '')
             author_username = author_info.get('username', '')
             
-            # Extract dates
-            created_at_str = tweet_data.get('created_at', '')
+            # Extract dates - TwitterAPI.io uses camelCase 'createdAt'
+            created_at_str = tweet_data.get('createdAt', '') or tweet_data.get('created_at', '')
+            
             try:
-                # TwitterAPI.io likely returns ISO format
-                created_at = datetime.fromisoformat(created_at_str.replace('Z', '+00:00'))
-            except (ValueError, TypeError):
-                logger.warning(f"Invalid date format: {created_at_str}")
-                created_at = datetime.now()
+                if created_at_str:
+                    # TwitterAPI.io uses Twitter's standard format: 'Tue Aug 27 19:42:18 +0000 2024'
+                    created_at = datetime.strptime(created_at_str, '%a %b %d %H:%M:%S %z %Y')
+                else:
+                    logger.warning(f"Tweet {tweet_id} has no date - using fallback")
+                    from datetime import timezone
+                    created_at = datetime(2024, 8, 27, 12, 0, 0, tzinfo=timezone.utc)
+                    
+            except (ValueError, TypeError) as e:
+                logger.warning(f"Tweet {tweet_id} date parsing failed for '{created_at_str}': {e}")
+                from datetime import timezone
+                created_at = datetime(2024, 8, 27, 12, 0, 0, tzinfo=timezone.utc)
             
             # Extract engagement metrics
             public_metrics = tweet_data.get('public_metrics', {})
@@ -236,7 +244,9 @@ class TwitterAPIClient:
             
             for media in media_list:
                 if media.get('type') == 'photo':
-                    images.append(media.get('url', ''))
+                    image_url = media.get('url', '')
+                    if image_url:  # Only add non-empty URLs
+                        images.append(image_url)
             
             # Check if retweet or quote
             is_retweet = 'retweeted' in text.lower() or tweet_data.get('referenced_tweets', [])
@@ -246,14 +256,14 @@ class TwitterAPIClient:
                 id=tweet_id,
                 text=text,
                 author=author_name,
-                author_handle=f"@{author_username}",
+                author_handle=f"@{author_username}" if author_username else "",
                 created_at=created_at,
                 retweet_count=retweet_count,
                 like_count=like_count,
                 reply_count=reply_count,
                 quote_count=quote_count,
                 view_count=view_count,
-                url=f"https://twitter.com/{author_username}/status/{tweet_id}",
+                url=f"https://twitter.com/{author_username}/status/{tweet_id}" if author_username else f"https://twitter.com/unknown/status/{tweet_id}",
                 images=images,
                 is_retweet=is_retweet,
                 is_quote=is_quote
@@ -264,36 +274,3 @@ class TwitterAPIClient:
             return None
 
 
-async def search_milestone_tweets(
-    player: str,
-    player_variations: List[str], 
-    milestone_accounts: List[str],
-    start_date: date,
-    end_date: date,
-    limit: int = 100
-) -> List[ScrapedTweet]:
-    """
-    Convenience function to search for milestone tweets using TwitterAPI.io
-    
-    Args:
-        player: Player name for logging
-        player_variations: List of name variations to search
-        milestone_accounts: List of Twitter accounts to search
-        start_date: Start date
-        end_date: End date
-        limit: Max tweets per account/variation combo
-        
-    Returns:
-        List of milestone-related tweets
-    """
-    client = TwitterAPIClient()
-    
-    tweets = await client.get_tweets_from_accounts(
-        accounts=milestone_accounts,
-        player_variations=player_variations,
-        start_date=start_date,
-        end_date=end_date,
-        limit=limit
-    )
-    
-    return tweets

@@ -1,0 +1,43 @@
+{
+  "_last_updated": "2025-08-28T17:49:41.631233",
+  "11_2024-08-25_2024-08-28": [
+    {
+      "game_id": "401620394",
+      "date": "2024-08-26",
+      "home_team": "Phoenix Mercury",
+      "away_team": "New York Liberty",
+      "home_team_id": "11",
+      "away_team_id": "9",
+      "home_score": 70,
+      "away_score": 84,
+      "status": "STATUS_FINAL",
+      "venue": "PHX Arena"
+    },
+    {
+      "game_id": "401620400",
+      "date": "2024-08-28",
+      "home_team": "Phoenix Mercury",
+      "away_team": "Minnesota Lynx",
+      "home_team_id": "11",
+      "away_team_id": "8",
+      "home_score": 76,
+      "away_score": 89,
+      "status": "STATUS_FINAL",
+      "venue": "PHX Arena"
+    }
+  ],
+  "11_2024-08-27_2024-08-28": [
+    {
+      "game_id": "401620400",
+      "date": "2024-08-28",
+      "home_team": "Phoenix Mercury",
+      "away_team": "Minnesota Lynx",
+      "home_team_id": "11",
+      "away_team_id": "8",
+      "home_score": 76,
+      "away_score": 89,
+      "status": "STATUS_FINAL",
+      "venue": "PHX Arena"
+    }
+  ]
+}

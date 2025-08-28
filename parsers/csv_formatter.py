@@ -49,6 +49,33 @@ class MilestoneCSVFormatter:
         self.output_file = Path(output_file)
         self.output_file.parent.mkdir(parents=True, exist_ok=True)
         
+    def _format_image_urls(self, images: List[str]) -> str:
+        """
+        Format image URLs for storage in CSV
+        
+        Args:
+            images: List of image URLs from tweet
+            
+        Returns:
+            String representation of image URLs
+        """
+        if not images:
+            return ''
+        
+        # For now, store as comma-separated URLs
+        # Could also use JSON array format if preferred
+        return ', '.join(images)
+        
+    def _log_image_stats(self, milestones: List, tweets: List) -> None:
+        """Log statistics about image extraction"""
+        tweets_with_images = sum(1 for tweet in tweets if tweet.images)
+        total_images = sum(len(tweet.images) for tweet in tweets)
+        
+        logger.info(f"Image extraction stats:")
+        logger.info(f"  Tweets with images: {tweets_with_images}/{len(tweets)}")
+        logger.info(f"  Total images found: {total_images}")
+        logger.info(f"  Avg images per tweet: {total_images/len(tweets):.2f}" if tweets else "  No tweets processed")
+        
     def format_milestone_to_csv_row(
         self, 
         milestone: MilestoneData,
@@ -93,8 +120,8 @@ class MilestoneCSVFormatter:
             'article_url': tweet.url,
             'original_submission_id': tweet.id,
             'is_award': 'TRUE' if is_award else 'FALSE',
-            'image_url': tweet.images[0] if tweet.images else '',
-            'image_data': '',  # Would need to download and encode images
+            'image_url': self._format_image_urls(tweet.images),
+            'image_data': '',  # Leaving empty - using URLs instead of base64
             'is_featured': 'FALSE'
         }
     
@@ -125,6 +152,7 @@ class MilestoneCSVFormatter:
             writer.writerows(rows)
             
         logger.info(f"Wrote {len(rows)} milestones to {self.output_file}")
+        self._log_image_stats(milestones, tweets)
         
     def append_milestones_to_csv(
         self,
@@ -161,6 +189,7 @@ class MilestoneCSVFormatter:
             writer.writerows(rows)
             
         logger.info(f"Appended {len(rows)} milestones to {self.output_file}")
+        self._log_image_stats(milestones, tweets)
         
     def read_existing_csv(self) -> List[Dict[str, str]]:
         """
@@ -210,7 +239,8 @@ def create_sample_csv_output(output_file: str) -> None:
         previous_record="Previous test record",
         player_name="Caitlin Clark",
         date_context="2024-08-27",
-        source_reliability=0.9
+        source_reliability=0.9,
+        source_tweet_id="test123"
     )
     
     sample_tweet = ScrapedTweet(

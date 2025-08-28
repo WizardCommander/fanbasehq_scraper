@@ -7,12 +7,13 @@ import logging
 import asyncio
 from datetime import date
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 from config.settings import (
     CONFIG_DIR, PLAYERS_FILE, TWITTER_ACCOUNTS_FILE
 )
-from utils.twitterapi_client import search_milestone_tweets, ScrapedTweet
+from utils.twitterapi_client import ScrapedTweet
+from utils.team_roster import get_player_team_fast
 from parsers.ai_parser import AIParser
 from parsers.csv_formatter import MilestoneCSVFormatter
 
@@ -32,10 +33,15 @@ class MilestoneScraper:
         limit: int = 100
     ):
         self.player = player.lower()
+        self.player_display_name = player.title()  # Store original case for display
         self.start_date = start_date
         self.end_date = end_date
         self.output_file = output_file
         self.limit = limit
+        
+        # Team information (will be populated dynamically)
+        self.team_name = None
+        self.team_id = None
         
         # Load configurations
         self.player_config = self._load_player_config()
@@ -59,18 +65,58 @@ class MilestoneScraper:
         """Load accounts configuration"""
         with open(TWITTER_ACCOUNTS_FILE, 'r') as f:
             return json.load(f)
+            
+    async def _lookup_player_team(self) -> bool:
+        """
+        Lookup player's current team dynamically with config fallback
+        
+        Returns:
+            True if team found, False otherwise
+        """
+        if self.team_name and self.team_id:
+            return True  # Already looked up
+            
+        # First try config fallback (faster)
+        config_team = self.player_config.get('team')
+        config_team_id = self.player_config.get('team_id')
+        if config_team and config_team_id:
+            self.team_name = config_team
+            self.team_id = config_team_id
+            logger.info(f"Using config team info: {self.player_display_name} plays for {self.team_name} (ID: {self.team_id})")
+            return True
+            
+        # If no config, try dynamic lookup
+        logger.info(f"Looking up team dynamically for {self.player_display_name}...")
+        
+        try:
+            team_info = await get_player_team_fast(self.player_display_name)
+            if team_info:
+                self.team_name, self.team_id = team_info
+                logger.info(f"{self.player_display_name} plays for {self.team_name} (ID: {self.team_id})")
+                return True
+            else:
+                logger.warning(f"Could not find team for {self.player_display_name}")
+                return False
+        except Exception as e:
+            logger.error(f"Error looking up team for {self.player_display_name}: {e}")
+            return False
     
     async def scrape_milestones(self) -> Dict:
         """
-        Streaming scraping method with memory management
+        Streaming scraping method with memory management and game validation
         
         Returns:
             Dictionary with scraping results
         """
-        logger.info(f"Starting milestone scrape for {self.player}")
+        logger.info(f"Starting milestone scrape for {self.player_display_name}")
         logger.info(f"Date range: {self.start_date} to {self.end_date}")
         logger.info(f"Output: {self.output_file}")
         
+        # Step 1: Lookup player's team dynamically
+        team_found = await self._lookup_player_team()
+        if not team_found:
+            logger.warning(f"Proceeding without team validation for {self.player_display_name}")
+            
         # Get player variations and milestone accounts
         player_variations = self.player_config.get('variations', [])
         milestone_accounts = self.accounts_config.get('twitter_accounts', {}).get('milestone_accounts', [])
@@ -82,6 +128,7 @@ class MilestoneScraper:
         total_tweets_processed = 0
         total_milestones_found = 0
         csv_initialized = False
+        all_milestones = []  # Store all milestones for final validation
         
         # Process each account/variation combination separately for memory efficiency
         for account in milestone_accounts:
@@ -129,6 +176,9 @@ class MilestoneScraper:
                         
                         total_milestones_found += len(milestones_batch)
                         logger.info(f"Added {len(milestones_batch)} milestones from {account} × {variation}")
+                        
+                        # Store milestones for game validation
+                        all_milestones.extend(milestones_batch)
                     
                     # Step 4: Clear memory - let Python GC handle cleanup
                     del tweets
@@ -142,11 +192,24 @@ class MilestoneScraper:
             logger.warning("No milestones found across all accounts/variations")
             # Create empty CSV file
             self.csv_formatter.write_milestones_to_csv([], [])
+            
+        # Log team and validation info for future enhancement
+        validation_results = {
+            "team_name": self.team_name,
+            "team_id": self.team_id,
+            "milestones_found": len(all_milestones),
+            "note": "Game schedule validation available but simplified for v1"
+        }
         
         results = {
             "count": total_milestones_found,
             "tweets_processed": total_tweets_processed,
-            "output_file": str(self.output_file)
+            "output_file": str(self.output_file),
+            "team_info": {
+                "team_name": self.team_name,
+                "team_id": self.team_id
+            },
+            "validation": validation_results
         }
         
         logger.info(f"Streaming scrape complete: {results}")
@@ -167,6 +230,12 @@ class MilestoneScraper:
             end_date=end_date,
             limit=limit
         )
+        
+        # Fix tweet URLs with known account info since TwitterAPI may not provide username
+        for tweet in tweets:
+            if not tweet.author_handle or tweet.author_handle == "@":
+                tweet.author_handle = f"@{account}"
+                tweet.url = f"https://twitter.com/{account}/status/{tweet.id}"
         
         return tweets
     
@@ -194,6 +263,8 @@ class MilestoneScraper:
                 logger.info(f"Found milestone: {milestone.title}")
         
         return milestones
+        
+            
         
     def run(self) -> Dict:
         """

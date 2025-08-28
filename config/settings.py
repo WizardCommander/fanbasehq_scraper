@@ -35,7 +35,7 @@ TWITTER_ACCOUNTS_FILE = CONFIG_DIR / 'accounts.json'
 PLAYERS_FILE = CONFIG_DIR / 'players.json'
 
 # TwitterAPI.io free tier: 1 request per 5 seconds
-DEFAULT_RATE_LIMIT_DELAY = 6  # seconds between requests (free tier limit)  
+DEFAULT_RATE_LIMIT_DELAY = 8  # seconds between requests (free tier limit + buffer)  
 MAX_RETRIES = 3
 
 # CSV Configuration
