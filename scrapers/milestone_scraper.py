@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from config.settings import (
-    CONFIG_DIR, PLAYERS_FILE, ACCOUNTS_FILE, TWITTER_KEYWORDS_FILE
+    CONFIG_DIR, PLAYERS_FILE, TWITTER_ACCOUNTS_FILE, TWITTER_KEYWORDS_FILE
 )
 from utils.twitter_client import search_milestone_tweets, ScrapedTweet
 from parsers.ai_parser import AIParser, filter_tweets_by_keywords
@@ -58,7 +58,7 @@ class MilestoneScraper:
         
     def _load_accounts_config(self) -> Dict:
         """Load accounts configuration"""
-        with open(ACCOUNTS_FILE, 'r') as f:
+        with open(TWITTER_ACCOUNTS_FILE, 'r') as f:
             return json.load(f)
             
     def _load_keywords_config(self) -> Dict:
@@ -98,7 +98,7 @@ class MilestoneScraper:
             logger.warning("No tweets found")
             return {"count": 0, "milestones": [], "tweets": []}
         
-        # Step 2: Convert tweets to format for filtering
+        # Step 2: Convert tweets to format for AI parsing (skip keyword filtering)
         tweet_dicts = []
         for tweet in tweets:
             tweet_dicts.append({
@@ -107,42 +107,32 @@ class MilestoneScraper:
                 "id": tweet.id
             })
         
-        # Step 3: Pre-filter tweets using keywords
-        milestone_keywords = []
-        keywords_config = self.keywords_config.get('milestones', {})
-        milestone_keywords.extend(keywords_config.get('achievement_words', []))
-        milestone_keywords.extend(keywords_config.get('stat_words', []))
+        logger.info(f"Sending {len(tweet_dicts)} tweets directly to AI parser (no keyword filtering)")
         
-        filtered_tweets = filter_tweets_by_keywords(tweet_dicts, milestone_keywords)
-        
-        if not filtered_tweets:
-            logger.warning("No tweets passed keyword filtering")
-            return {"count": 0, "milestones": [], "tweets": []}
-        
-        # Step 4: Parse filtered tweets with AI
-        milestones = self.ai_parser.batch_parse_tweets(filtered_tweets)
+        # Step 3: Parse all tweets with AI (GPT will filter for milestones)
+        milestones = self.ai_parser.batch_parse_tweets(tweet_dicts)
         
         if not milestones:
             logger.warning("No milestones found by AI parser")
             return {"count": 0, "milestones": [], "tweets": []}
         
-        # Step 5: Match milestones back to original tweet objects
+        # Step 4: Match milestones back to original tweet objects
         milestone_tweets = []
         for milestone in milestones:
-            # Find corresponding tweet object
+            # Find corresponding tweet object by matching any tweet in our dataset
             for tweet in tweets:
-                if any(filtered_tweet["id"] == tweet.id for filtered_tweet in filtered_tweets):
+                if any(tweet_dict["id"] == tweet.id for tweet_dict in tweet_dicts):
                     milestone_tweets.append(tweet)
                     break
         
-        # Step 6: Write to CSV
+        # Step 5: Write to CSV
         self.csv_formatter.write_milestones_to_csv(milestones, milestone_tweets)
         
         results = {
             "count": len(milestones),
             "milestones": [milestone.title for milestone in milestones],
             "tweets_scraped": len(tweets),
-            "tweets_filtered": len(filtered_tweets), 
+            "tweets_sent_to_ai": len(tweet_dicts), 
             "output_file": str(self.output_file)
         }
         

@@ -13,6 +13,9 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
+# Apply compatibility fix for Python 3.12+
+import fix_collections
+
 from scrapers.milestone_scraper import MilestoneScraper
 from utils.date_utils import parse_date, validate_date_range
 
@@ -95,7 +98,7 @@ Examples:
         output_dir.mkdir(exist_ok=True)
         args.output = output_dir / f"{args.type.replace('-', '_')}.csv"
     
-    print(f"🏀 FanbaseHQ Scraper Starting...")
+    print("FanbaseHQ Scraper Starting...")
     print(f"Player: {args.player}")
     print(f"Type: {args.type}")
     print(f"Date range: {args.start_date} to {args.end_date}")
@@ -103,7 +106,7 @@ Examples:
     print(f"Limit: {args.limit} posts")
     
     if args.dry_run:
-        print("🔍 DRY RUN MODE - No actual scraping will occur")
+        print("DRY RUN MODE - No actual scraping will occur")
         return 0
     
     try:
@@ -116,22 +119,22 @@ Examples:
                 limit=args.limit
             )
             results = scraper.run()
-            print(f"✅ Successfully scraped {results['count']} milestones")
-            print(f"📄 Results saved to: {args.output}")
+            print(f"Successfully scraped {results['count']} milestones")
+            print(f"Results saved to: {args.output}")
             
         elif args.type == 'shoes':
-            print("👟 Shoe scraper coming soon!")
+            print("Shoe scraper coming soon!")
             return 1
             
         elif args.type == 'tunnel-fits':
-            print("👗 Tunnel fit scraper coming soon!")
+            print("Tunnel fit scraper coming soon!")
             return 1
             
     except KeyboardInterrupt:
-        print("\n⚠️ Scraping interrupted by user")
+        print("\nScraping interrupted by user")
         return 1
     except Exception as e:
-        print(f"❌ Error during scraping: {e}")
+        print(f"Error during scraping: {e}")
         return 1
     
     return 0

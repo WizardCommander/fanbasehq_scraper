@@ -20,13 +20,18 @@ OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '')
 if not OPENAI_API_KEY:
     raise ValueError("OPENAI_API_KEY not found in .env file")
 
+# X.com Cookie Authentication
+X_COOKIES = os.getenv('X_COOKIES', '')
+if not X_COOKIES:
+    raise ValueError("X_COOKIES not found in .env file")
+
 # Twitter/X.com Configuration
 TWITTER_ACCOUNTS_FILE = CONFIG_DIR / 'accounts.json'
 TWITTER_KEYWORDS_FILE = CONFIG_DIR / 'keywords.json'
 PLAYERS_FILE = CONFIG_DIR / 'players.json'
 
 # Scraping Configuration
-DEFAULT_RATE_LIMIT_DELAY = 1  # seconds between requests
+DEFAULT_RATE_LIMIT_DELAY = 5  # seconds between requests (increased for rate limiting)
 MAX_RETRIES = 3
 REQUEST_TIMEOUT = 30  # seconds
 
