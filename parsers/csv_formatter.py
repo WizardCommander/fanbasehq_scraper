@@ -1,5 +1,5 @@
 """
-CSV formatter to match FanbaseHQ milestone schema
+CSV formatter to match FanbaseHQ milestone schema with intelligent date resolution
 """
 
 import csv
@@ -8,10 +8,10 @@ import logging
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Optional
-from dataclasses import asdict
 
 from utils.twitterapi_client import ScrapedTweet
 from parsers.ai_parser import MilestoneData
+from parsers.date_resolver import create_date_resolver
 from config.settings import CSV_ENCODING
 
 
@@ -76,18 +76,20 @@ class MilestoneCSVFormatter:
         logger.info(f"  Total images found: {total_images}")
         logger.info(f"  Avg images per tweet: {total_images/len(tweets):.2f}" if tweets else "  No tweets processed")
         
-    def format_milestone_to_csv_row(
+    async def format_milestone_to_csv_row(
         self, 
         milestone: MilestoneData,
         tweet: ScrapedTweet,
+        player_name: str,
         submission_id: int = None
     ) -> Dict[str, str]:
         """
-        Convert milestone and tweet data to CSV row format
+        Convert milestone and tweet data to CSV row format with intelligent date resolution
         
         Args:
             milestone: Parsed milestone data
             tweet: Original tweet data
+            player_name: Player name for date resolution
             submission_id: Optional ID for the submission
             
         Returns:
@@ -95,6 +97,23 @@ class MilestoneCSVFormatter:
         """
         now = datetime.now()
         timestamp = now.strftime('%Y-%m-%d %H:%M:%S.%f%z')
+        
+        # Resolve the actual milestone date using intelligent date resolution
+        try:
+            date_resolver = create_date_resolver()
+            resolved_date, date_source, date_confidence = await date_resolver.resolve_milestone_date(
+                milestone, tweet.created_at, player_name
+            )
+            
+            # Log the date resolution for debugging
+            logger.info(f"Date resolution: {tweet.created_at.strftime('%Y-%m-%d')} -> {resolved_date} "
+                       f"(source: {date_source}, confidence: {date_confidence:.2f})")
+                       
+        except Exception as e:
+            logger.warning(f"Date resolution failed, using tweet date: {e}")
+            resolved_date = tweet.created_at.date()
+            date_source = "tweet_published"
+            date_confidence = 0.3
         
         # Format categories as JSON array string
         categories_json = json.dumps(milestone.categories) if milestone.categories else '[]'
@@ -104,9 +123,9 @@ class MilestoneCSVFormatter:
         
         return {
             'id': submission_id or '',
-            'player_name': milestone.player_name or 'Caitlin Clark',
+            'player_name': milestone.player_name or player_name,
             'title': milestone.title,
-            'date': tweet.created_at.strftime('%Y-%m-%d'),
+            'date': resolved_date.strftime('%Y-%m-%d'),  # Use resolved date instead of tweet date
             'value': milestone.value,
             'categories': categories_json,
             'previous_record': milestone.previous_record,
@@ -125,24 +144,26 @@ class MilestoneCSVFormatter:
             'is_featured': 'FALSE'
         }
     
-    def write_milestones_to_csv(
+    async def write_milestones_to_csv(
         self,
         milestones: List[MilestoneData], 
-        tweets: List[ScrapedTweet]
+        tweets: List[ScrapedTweet],
+        player_name: str
     ) -> None:
         """
-        Write milestones to CSV file
+        Write milestones to CSV file with intelligent date resolution
         
         Args:
             milestones: List of parsed milestone data
             tweets: List of corresponding tweet data
+            player_name: Player name for date resolution
         """
         if len(milestones) != len(tweets):
             raise ValueError("Milestones and tweets lists must have same length")
         
         rows = []
         for i, (milestone, tweet) in enumerate(zip(milestones, tweets), 1):
-            row = self.format_milestone_to_csv_row(milestone, tweet, submission_id=i)
+            row = await self.format_milestone_to_csv_row(milestone, tweet, player_name, submission_id=i)
             rows.append(row)
         
         # Write to CSV
@@ -154,17 +175,19 @@ class MilestoneCSVFormatter:
         logger.info(f"Wrote {len(rows)} milestones to {self.output_file}")
         self._log_image_stats(milestones, tweets)
         
-    def append_milestones_to_csv(
+    async def append_milestones_to_csv(
         self,
         milestones: List[MilestoneData],
-        tweets: List[ScrapedTweet]
+        tweets: List[ScrapedTweet],
+        player_name: str
     ) -> None:
         """
-        Append milestones to existing CSV file
+        Append milestones to existing CSV file with intelligent date resolution
         
         Args:
             milestones: List of parsed milestone data  
             tweets: List of corresponding tweet data
+            player_name: Player name for date resolution
         """
         if len(milestones) != len(tweets):
             raise ValueError("Milestones and tweets lists must have same length")
@@ -172,9 +195,13 @@ class MilestoneCSVFormatter:
         # Check if file exists and has header
         file_exists = self.output_file.exists()
         
+        # Get the next ID number by counting existing records
+        existing_count = len(self.read_existing_csv()) if file_exists else 0
+        
         rows = []
-        for milestone, tweet in zip(milestones, tweets):
-            row = self.format_milestone_to_csv_row(milestone, tweet)
+        for i, (milestone, tweet) in enumerate(zip(milestones, tweets), 1):
+            submission_id = existing_count + i
+            row = await self.format_milestone_to_csv_row(milestone, tweet, player_name, submission_id=submission_id)
             rows.append(row)
             
         # Append to CSV
@@ -220,45 +247,4 @@ class MilestoneCSVFormatter:
         return [row.get('original_submission_id', '') for row in existing_rows]
 
 
-def create_sample_csv_output(output_file: str) -> None:
-    """
-    Create a sample CSV file with the correct schema for testing
-    
-    Args:
-        output_file: Path to output CSV file
-    """
-    formatter = MilestoneCSVFormatter(output_file)
-    
-    # Sample data
-    sample_milestone = MilestoneData(
-        is_milestone=True,
-        title="Sample Milestone for Testing",
-        value="Test value",
-        categories=["scoring", "league"],
-        description="This is a test milestone to verify CSV schema",
-        previous_record="Previous test record",
-        player_name="Caitlin Clark",
-        date_context="2024-08-27",
-        source_reliability=0.9,
-        source_tweet_id="test123"
-    )
-    
-    sample_tweet = ScrapedTweet(
-        id="test123",
-        text="Sample test tweet",
-        author="Test Author", 
-        author_handle="@testauthor",
-        created_at=datetime.now(),
-        retweet_count=0,
-        like_count=0,
-        reply_count=0,
-        quote_count=0,
-        view_count=0,
-        url="https://twitter.com/test/status/123",
-        images=[],
-        is_retweet=False,
-        is_quote=False
-    )
-    
-    formatter.write_milestones_to_csv([sample_milestone], [sample_tweet])
-    logger.info(f"Created sample CSV at {output_file}")
+# Sample function removed for production - see development branch for testing utilities

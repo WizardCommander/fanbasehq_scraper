@@ -6,12 +6,13 @@ from datetime import datetime, date
 from typing import Union
 
 
-def parse_date(date_str: str) -> date:
+def parse_date(date_str: str, strict: bool = True) -> date:
     """
-    Parse a date string in YYYY-MM-DD format to a date object
+    Parse date string in various formats
     
     Args:
-        date_str: Date string in format YYYY-MM-DD
+        date_str: Date string to parse
+        strict: If True, only accept YYYY-MM-DD format. If False, try fuzzy parsing
         
     Returns:
         date object
@@ -19,10 +20,23 @@ def parse_date(date_str: str) -> date:
     Raises:
         ValueError: If date format is invalid
     """
+    import re
+    from dateutil import parser as date_parser
+    
     try:
-        return datetime.strptime(date_str, '%Y-%m-%d').date()
-    except ValueError:
-        raise ValueError(f"Invalid date format: {date_str}. Expected YYYY-MM-DD")
+        if strict:
+            return datetime.strptime(date_str, '%Y-%m-%d').date()
+        else:
+            # Try YYYY-MM-DD first, then fallback to fuzzy parsing
+            if re.match(r'\d{4}-\d{2}-\d{2}', date_str):
+                return datetime.strptime(date_str, '%Y-%m-%d').date()
+            parsed = date_parser.parse(date_str, fuzzy=True)
+            return parsed.date()
+    except Exception as e:
+        if strict:
+            raise ValueError(f"Invalid date format: {date_str}. Expected YYYY-MM-DD")
+        else:
+            raise ValueError(f"Could not parse date: {date_str}. Error: {e}")
 
 
 def validate_date_range(start_date: date, end_date: date) -> None:

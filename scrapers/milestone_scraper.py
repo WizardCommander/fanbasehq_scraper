@@ -13,7 +13,7 @@ from config.settings import (
     CONFIG_DIR, PLAYERS_FILE, TWITTER_ACCOUNTS_FILE
 )
 from utils.twitterapi_client import ScrapedTweet
-from utils.team_roster import get_player_team_fast
+from utils.roster_cache import lookup_player_team_with_id
 from parsers.ai_parser import AIParser
 from parsers.csv_formatter import MilestoneCSVFormatter
 
@@ -89,7 +89,7 @@ class MilestoneScraper:
         logger.info(f"Looking up team dynamically for {self.player_display_name}...")
         
         try:
-            team_info = await get_player_team_fast(self.player_display_name)
+            team_info = lookup_player_team_with_id(self.player_display_name)
             if team_info:
                 self.team_name, self.team_id = team_info
                 logger.info(f"{self.player_display_name} plays for {self.team_name} (ID: {self.team_id})")
@@ -129,6 +129,7 @@ class MilestoneScraper:
         total_milestones_found = 0
         csv_initialized = False
         all_milestones = []  # Store all milestones for final validation
+        processed_tweet_ids = set()  # Track processed tweet IDs to prevent duplicates
         
         # Process each account/variation combination separately for memory efficiency
         for account in milestone_accounts:
@@ -154,25 +155,35 @@ class MilestoneScraper:
                     milestones_batch = await self._process_tweets_streaming(tweets)
                     
                     if milestones_batch:
-                        # Step 3: Match milestones to their source tweets
-                        milestone_tweets = []
+                        # Step 3: Deduplicate milestones by tweet ID
+                        deduplicated_milestones = []
+                        deduplicated_tweets = []
                         tweet_lookup = {tweet.id: tweet for tweet in tweets}
                         
                         for milestone in milestones_batch:
-                            source_tweet = tweet_lookup.get(milestone.source_tweet_id)
-                            if source_tweet:
-                                milestone_tweets.append(source_tweet)
+                            if milestone.source_tweet_id not in processed_tweet_ids:
+                                processed_tweet_ids.add(milestone.source_tweet_id)
+                                deduplicated_milestones.append(milestone)
+                                
+                                source_tweet = tweet_lookup.get(milestone.source_tweet_id)
+                                if source_tweet:
+                                    deduplicated_tweets.append(source_tweet)
+                                else:
+                                    logger.warning(f"Could not find source tweet for milestone: {milestone.title}")
+                                    if tweets:  # Fallback to first tweet
+                                        deduplicated_tweets.append(tweets[0])
                             else:
-                                logger.warning(f"Could not find source tweet for milestone: {milestone.title}")
-                                if tweets:  # Fallback to first tweet
-                                    milestone_tweets.append(tweets[0])
+                                logger.debug(f"Skipping duplicate milestone from tweet {milestone.source_tweet_id}: {milestone.title}")
+                        
+                        milestones_batch = deduplicated_milestones
+                        milestone_tweets = deduplicated_tweets
                         
                         # Step 4: Stream write to CSV (append mode)
                         if not csv_initialized:
-                            self.csv_formatter.write_milestones_to_csv(milestones_batch, milestone_tweets)
+                            await self.csv_formatter.write_milestones_to_csv(milestones_batch, milestone_tweets, self.player_display_name)
                             csv_initialized = True
                         else:
-                            self.csv_formatter.append_milestones_to_csv(milestones_batch, milestone_tweets)
+                            await self.csv_formatter.append_milestones_to_csv(milestones_batch, milestone_tweets, self.player_display_name)
                         
                         total_milestones_found += len(milestones_batch)
                         logger.info(f"Added {len(milestones_batch)} milestones from {account} × {variation}")
@@ -184,14 +195,23 @@ class MilestoneScraper:
                     del tweets
                     del milestones_batch
                     
+                except ValueError as e:
+                    logger.error(f"Configuration error processing {account} × {variation}: {e}")
+                    continue
+                except ConnectionError as e:
+                    logger.error(f"Network error processing {account} × {variation}: {e}")
+                    continue
                 except Exception as e:
-                    logger.error(f"Error processing {account} × {variation}: {e}")
+                    logger.error(f"Unexpected error processing {account} × {variation}: {e}")
+                    # Re-raise for critical errors that shouldn't be silently ignored
+                    if "authentication" in str(e).lower() or "api key" in str(e).lower():
+                        raise
                     continue
         
         if total_milestones_found == 0:
             logger.warning("No milestones found across all accounts/variations")
             # Create empty CSV file
-            self.csv_formatter.write_milestones_to_csv([], [])
+            await self.csv_formatter.write_milestones_to_csv([], [], self.player_display_name)
             
         # Log team and validation info for future enhancement
         validation_results = {
@@ -254,6 +274,7 @@ class MilestoneScraper:
             # Parse single tweet with AI
             milestone = self.ai_parser.parse_milestone_tweet(
                 tweet_text=tweet_dict["text"],
+                target_player=self.player_display_name,
                 tweet_url=tweet_dict["url"],
                 tweet_id=tweet_dict["id"]
             )
@@ -276,28 +297,4 @@ class MilestoneScraper:
         return asyncio.run(self.scrape_milestones())
 
 
-async def test_milestone_scraper():
-    """Test function for the milestone scraper"""
-    
-    # Test with small date range
-    scraper = MilestoneScraper(
-        player="caitlin clark",
-        start_date=date(2024, 8, 1),
-        end_date=date(2024, 8, 27),
-        output_file="output/test_milestones.csv",
-        limit=10
-    )
-    
-    results = await scraper.scrape_milestones()
-    print(f"Test results: {results}")
-
-
-if __name__ == "__main__":
-    # Set up logging
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    )
-    
-    # Run test
-    asyncio.run(test_milestone_scraper())
+# Test functions removed for production - see development branch for testing utilities

@@ -42,6 +42,16 @@ MAX_RETRIES = 3
 CSV_ENCODING = 'utf-8'
 CSV_DATE_FORMAT = '%Y-%m-%d %H:%M:%S.%f%z'
 
+# Date Resolution Confidence Thresholds
+HIGH_CONFIDENCE_THRESHOLD = 0.7  # Minimum confidence to use AI-extracted dates
+GAME_SCHEDULE_CONFIDENCE = 0.7   # Confidence when using game schedule inference
+TEXT_PARSING_CONFIDENCE = 0.8    # Confidence when parsing dates from text
+FALLBACK_CONFIDENCE = 0.3        # Confidence when falling back to tweet date
+
+# Cache Configuration
+DEFAULT_CACHE_HOURS = 6         # Default cache expiration time
+CURRENT_SEASON_CACHE_HOURS = 1  # Cache time for current season data
+
 # AI Parser Configuration (GPT)
 GPT_MODEL = 'gpt-3.5-turbo'  # Can upgrade to 'gpt-4' later if needed
 GPT_MAX_TOKENS = 1000

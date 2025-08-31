@@ -6,6 +6,7 @@ Modular scraper for WNBA player milestones, shoes, and tunnel fits
 
 import argparse
 import sys
+import logging
 from datetime import datetime, date
 from pathlib import Path
 
@@ -18,6 +19,9 @@ import fix_collections
 
 from scrapers.milestone_scraper import MilestoneScraper
 from utils.date_utils import parse_date, validate_date_range
+
+# Set up logging
+logger = logging.getLogger(__name__)
 
 
 def main():
@@ -89,7 +93,7 @@ Examples:
         end_date = parse_date(args.end_date)
         validate_date_range(start_date, end_date)
     except ValueError as e:
-        print(f"Error: {e}")
+        logger.error(f"Date validation error: {e}")
         return 1
     
     # Set default output path
@@ -98,15 +102,15 @@ Examples:
         output_dir.mkdir(exist_ok=True)
         args.output = output_dir / f"{args.type.replace('-', '_')}.csv"
     
-    print("FanbaseHQ Scraper Starting...")
-    print(f"Player: {args.player}")
-    print(f"Type: {args.type}")
-    print(f"Date range: {args.start_date} to {args.end_date}")
-    print(f"Output: {args.output}")
-    print(f"Limit: {args.limit} posts")
+    logger.info("FanbaseHQ Scraper Starting...")
+    logger.info(f"Player: {args.player}")
+    logger.info(f"Type: {args.type}")
+    logger.info(f"Date range: {args.start_date} to {args.end_date}")
+    logger.info(f"Output: {args.output}")
+    logger.info(f"Limit: {args.limit} posts")
     
     if args.dry_run:
-        print("DRY RUN MODE - No actual scraping will occur")
+        logger.info("DRY RUN MODE - No actual scraping will occur")
         return 0
     
     try:
@@ -119,26 +123,31 @@ Examples:
                 limit=args.limit
             )
             results = scraper.run()
-            print(f"Successfully scraped {results['count']} milestones")
-            print(f"Results saved to: {args.output}")
+            logger.info(f"Successfully scraped {results['count']} milestones")
+            logger.info(f"Results saved to: {args.output}")
             
         elif args.type == 'shoes':
-            print("Shoe scraper coming soon!")
+            logger.warning("Shoe scraper coming soon!")
             return 1
             
         elif args.type == 'tunnel-fits':
-            print("Tunnel fit scraper coming soon!")
+            logger.warning("Tunnel fit scraper coming soon!")
             return 1
             
     except KeyboardInterrupt:
-        print("\nScraping interrupted by user")
+        logger.info("Scraping interrupted by user")
         return 1
     except Exception as e:
-        print(f"Error during scraping: {e}")
+        logger.error(f"Error during scraping: {e}")
         return 1
     
     return 0
 
 
 if __name__ == '__main__':
+    # Set up logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
     sys.exit(main())
