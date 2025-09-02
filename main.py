@@ -115,15 +115,15 @@ Examples:
     
     try:
         if args.type == 'milestones':
-            scraper = MilestoneScraper(
+            scraper = MilestoneScraper.create_from_legacy_params(
                 player=args.player,
                 start_date=start_date,
                 end_date=end_date,
-                output_file=args.output,
+                output_file=str(args.output),
                 limit=args.limit
             )
             results = scraper.run()
-            logger.info(f"Successfully scraped {results['count']} milestones")
+            logger.info(f"Successfully scraped {results['milestones_found']} milestones")
             logger.info(f"Results saved to: {args.output}")
             
         elif args.type == 'shoes':

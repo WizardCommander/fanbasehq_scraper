@@ -1,5 +1,5 @@
 """
-Milestone scraper for Caitlin Clark WNBA data
+Milestone scraper for Caitlin Clark WNBA data - Refactored Architecture
 """
 
 import json
@@ -7,13 +7,16 @@ import logging
 import asyncio
 from datetime import date
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from config.settings import (
     CONFIG_DIR, PLAYERS_FILE, TWITTER_ACCOUNTS_FILE
 )
-from utils.twitterapi_client import ScrapedTweet
 from utils.roster_cache import lookup_player_team_with_id
+from services.scraper_config import ScraperConfig
+from services.twitter_search_service import TwitterSearchService
+from services.milestone_processing_service import MilestoneProcessingService
+from services.result_aggregation_service import ResultAggregationService
 from parsers.ai_parser import AIParser
 from parsers.csv_formatter import MilestoneCSVFormatter
 
@@ -22,271 +25,190 @@ logger = logging.getLogger(__name__)
 
 
 class MilestoneScraper:
-    """Main scraper class for milestone data"""
+    """Main scraper orchestrator - coordinates services to perform milestone scraping"""
     
     def __init__(
         self,
+        config: ScraperConfig,
+        twitter_service: Optional[TwitterSearchService] = None,
+        processing_service: Optional[MilestoneProcessingService] = None,
+        aggregation_service: Optional[ResultAggregationService] = None,
+        csv_formatter: Optional[MilestoneCSVFormatter] = None
+    ):
+        # Validate and store configuration
+        config.validate()
+        self.config = config
+        
+        # Initialize services with dependency injection
+        self.twitter_service = twitter_service or TwitterSearchService()
+        self.processing_service = processing_service or MilestoneProcessingService()
+        self.aggregation_service = aggregation_service or ResultAggregationService()
+        self.csv_formatter = csv_formatter or MilestoneCSVFormatter(config.output_file)
+    
+    @classmethod
+    def create_from_legacy_params(
+        cls,
         player: str,
         start_date: date,
         end_date: date,
         output_file: str,
         limit: int = 100
-    ):
-        self.player = player.lower()
-        self.player_display_name = player.title()  # Store original case for display
-        self.start_date = start_date
-        self.end_date = end_date
-        self.output_file = output_file
-        self.limit = limit
+    ) -> 'MilestoneScraper':
+        """Factory method for backward compatibility with legacy constructor"""
         
-        # Team information (will be populated dynamically)
-        self.team_name = None
-        self.team_id = None
+        # Load configurations the old way for now
+        player_config = cls._load_player_config(player.lower())
+        accounts_config = cls._load_accounts_config()
         
-        # Load configurations
-        self.player_config = self._load_player_config()
-        self.accounts_config = self._load_accounts_config()
+        # Create config object
+        config = ScraperConfig(
+            player=player.lower(),
+            player_display_name=player.title(),
+            start_date=start_date,
+            end_date=end_date,
+            output_file=output_file,
+            limit=limit,
+            player_variations=player_config.get('variations', []),
+            milestone_accounts=accounts_config.get('twitter_accounts', {}).get('milestone_accounts', [])
+        )
         
-        # Initialize components
-        self.ai_parser = AIParser()
-        self.csv_formatter = MilestoneCSVFormatter(output_file)
+        return cls(config)
         
-    def _load_player_config(self) -> Dict:
+    @staticmethod
+    def _load_player_config(player: str) -> Dict:
         """Load player configuration"""
         with open(PLAYERS_FILE, 'r') as f:
             players = json.load(f)
             
-        if self.player not in players:
-            raise ValueError(f"Player '{self.player}' not found in {PLAYERS_FILE}")
+        if player not in players:
+            raise ValueError(f"Player '{player}' not found in {PLAYERS_FILE}")
             
-        return players[self.player]
+        return players[player]
         
-    def _load_accounts_config(self) -> Dict:
+    @staticmethod
+    def _load_accounts_config() -> Dict:
         """Load accounts configuration"""
         with open(TWITTER_ACCOUNTS_FILE, 'r') as f:
             return json.load(f)
             
-    async def _lookup_player_team(self) -> bool:
-        """
-        Lookup player's current team dynamically with config fallback
-        
-        Returns:
-            True if team found, False otherwise
-        """
-        if self.team_name and self.team_id:
-            return True  # Already looked up
-            
-        # First try config fallback (faster)
-        config_team = self.player_config.get('team')
-        config_team_id = self.player_config.get('team_id')
-        if config_team and config_team_id:
-            self.team_name = config_team
-            self.team_id = config_team_id
-            logger.info(f"Using config team info: {self.player_display_name} plays for {self.team_name} (ID: {self.team_id})")
-            return True
-            
-        # If no config, try dynamic lookup
-        logger.info(f"Looking up team dynamically for {self.player_display_name}...")
-        
-        try:
-            team_info = lookup_player_team_with_id(self.player_display_name)
-            if team_info:
-                self.team_name, self.team_id = team_info
-                logger.info(f"{self.player_display_name} plays for {self.team_name} (ID: {self.team_id})")
-                return True
-            else:
-                logger.warning(f"Could not find team for {self.player_display_name}")
-                return False
-        except Exception as e:
-            logger.error(f"Error looking up team for {self.player_display_name}: {e}")
-            return False
     
     async def scrape_milestones(self) -> Dict:
         """
-        Streaming scraping method with memory management and game validation
+        Orchestrate milestone scraping using service layer architecture
         
         Returns:
             Dictionary with scraping results
         """
-        logger.info(f"Starting milestone scrape for {self.player_display_name}")
-        logger.info(f"Date range: {self.start_date} to {self.end_date}")
-        logger.info(f"Output: {self.output_file}")
+        logger.info(f"Starting milestone scrape for {self.config.player_display_name}")
+        logger.info(f"Date range: {self.config.start_date} to {self.config.end_date}")
+        logger.info(f"Output: {self.config.output_file}")
         
-        # Step 1: Lookup player's team dynamically
-        team_found = await self._lookup_player_team()
-        if not team_found:
-            logger.warning(f"Proceeding without team validation for {self.player_display_name}")
-            
-        # Get player variations and milestone accounts
-        player_variations = self.player_config.get('variations', [])
-        milestone_accounts = self.accounts_config.get('twitter_accounts', {}).get('milestone_accounts', [])
+        # Step 1: Setup team information
+        await self._setup_team_information()
         
-        logger.info(f"Player variations: {player_variations}")
-        logger.info(f"Milestone accounts: {milestone_accounts}")
-        
-        # Initialize counters and CSV writer
-        total_tweets_processed = 0
-        total_milestones_found = 0
-        csv_initialized = False
-        all_milestones = []  # Store all milestones for final validation
-        processed_tweet_ids = set()  # Track processed tweet IDs to prevent duplicates
-        
-        # Process each account/variation combination separately for memory efficiency
-        for account in milestone_accounts:
-            account_clean = account.lstrip('@')
-            
-            for variation in player_variations:
-                try:
-                    logger.info(f"Processing {account} × {variation}")
-                    
-                    # Step 1: Get tweets for this specific combination (small batch)
-                    tweets = await self._get_tweets_for_account_variation(
-                        account_clean, variation, self.start_date, self.end_date, self.limit
-                    )
-                    
-                    if not tweets:
-                        logger.info(f"No tweets found for {account} × {variation}")
-                        continue
-                    
-                    total_tweets_processed += len(tweets)
-                    logger.info(f"Found {len(tweets)} tweets for {account} × {variation}")
-                    
-                    # Step 2: Process tweets in streaming fashion
-                    milestones_batch = await self._process_tweets_streaming(tweets)
-                    
-                    if milestones_batch:
-                        # Step 3: Deduplicate milestones by tweet ID
-                        deduplicated_milestones = []
-                        deduplicated_tweets = []
-                        tweet_lookup = {tweet.id: tweet for tweet in tweets}
-                        
-                        for milestone in milestones_batch:
-                            if milestone.source_tweet_id not in processed_tweet_ids:
-                                processed_tweet_ids.add(milestone.source_tweet_id)
-                                deduplicated_milestones.append(milestone)
-                                
-                                source_tweet = tweet_lookup.get(milestone.source_tweet_id)
-                                if source_tweet:
-                                    deduplicated_tweets.append(source_tweet)
-                                else:
-                                    logger.warning(f"Could not find source tweet for milestone: {milestone.title}")
-                                    if tweets:  # Fallback to first tweet
-                                        deduplicated_tweets.append(tweets[0])
-                            else:
-                                logger.debug(f"Skipping duplicate milestone from tweet {milestone.source_tweet_id}: {milestone.title}")
-                        
-                        milestones_batch = deduplicated_milestones
-                        milestone_tweets = deduplicated_tweets
-                        
-                        # Step 4: Stream write to CSV (append mode)
-                        if not csv_initialized:
-                            await self.csv_formatter.write_milestones_to_csv(milestones_batch, milestone_tweets, self.player_display_name)
-                            csv_initialized = True
-                        else:
-                            await self.csv_formatter.append_milestones_to_csv(milestones_batch, milestone_tweets, self.player_display_name)
-                        
-                        total_milestones_found += len(milestones_batch)
-                        logger.info(f"Added {len(milestones_batch)} milestones from {account} × {variation}")
-                        
-                        # Store milestones for game validation
-                        all_milestones.extend(milestones_batch)
-                    
-                    # Step 4: Clear memory - let Python GC handle cleanup
-                    del tweets
-                    del milestones_batch
-                    
-                except ValueError as e:
-                    logger.error(f"Configuration error processing {account} × {variation}: {e}")
-                    continue
-                except ConnectionError as e:
-                    logger.error(f"Network error processing {account} × {variation}: {e}")
-                    continue
-                except Exception as e:
-                    logger.error(f"Unexpected error processing {account} × {variation}: {e}")
-                    # Re-raise for critical errors that shouldn't be silently ignored
-                    if "authentication" in str(e).lower() or "api key" in str(e).lower():
-                        raise
-                    continue
-        
-        if total_milestones_found == 0:
-            logger.warning("No milestones found across all accounts/variations")
-            # Create empty CSV file
-            await self.csv_formatter.write_milestones_to_csv([], [], self.player_display_name)
-            
-        # Log team and validation info for future enhancement
-        validation_results = {
-            "team_name": self.team_name,
-            "team_id": self.team_id,
-            "milestones_found": len(all_milestones),
-            "note": "Game schedule validation available but simplified for v1"
-        }
-        
-        results = {
-            "count": total_milestones_found,
-            "tweets_processed": total_tweets_processed,
-            "output_file": str(self.output_file),
-            "team_info": {
-                "team_name": self.team_name,
-                "team_id": self.team_id
-            },
-            "validation": validation_results
-        }
-        
-        logger.info(f"Streaming scrape complete: {results}")
-        return results
-    
-    async def _get_tweets_for_account_variation(
-        self, account: str, variation: str, start_date, end_date, limit: int
-    ) -> List[ScrapedTweet]:
-        """Get tweets for a specific account/variation combination"""
-        from utils.twitterapi_client import TwitterAPIClient
-        
-        client = TwitterAPIClient()
-        query = f'from:{account} "{variation}"'
-        
-        tweets = await client.search_tweets(
-            query=query,
-            start_date=start_date,
-            end_date=end_date,
-            limit=limit
+        # Step 2: Search Twitter for tweets
+        logger.info(f"Searching across {len(self.config.milestone_accounts)} accounts with {len(self.config.player_variations)} variations")
+        search_results = await self.twitter_service.search_tweets_for_player(
+            accounts=self.config.milestone_accounts,
+            variations=self.config.player_variations,
+            start_date=self.config.start_date,
+            end_date=self.config.end_date,
+            limit=self.config.limit
         )
         
-        # Fix tweet URLs with known account info since TwitterAPI may not provide username
-        for tweet in tweets:
-            if not tweet.author_handle or tweet.author_handle == "@":
-                tweet.author_handle = f"@{account}"
-                tweet.url = f"https://twitter.com/{account}/status/{tweet.id}"
+        if not search_results:
+            logger.warning("No tweets found across all searches")
+            await self._write_empty_results()
+            return self._create_results_summary(0, 0, [])
         
-        return tweets
-    
-    async def _process_tweets_streaming(self, tweets: List[ScrapedTweet]) -> List:
-        """Process tweets for milestones in streaming fashion"""
-        milestones = []
+        # Step 3: Process tweets into milestones
+        milestone_batches = []
+        total_tweets_processed = 0
         
-        for tweet in tweets:
-            # Process each tweet individually to minimize memory
-            tweet_dict = {
-                "text": tweet.text,
-                "url": tweet.url,
-                "id": tweet.id
-            }
+        for search_result in search_results:
+            logger.info(f"Processing {len(search_result.tweets)} tweets from {search_result.account} × {search_result.variation}")
             
-            # Parse single tweet with AI
-            milestone = self.ai_parser.parse_milestone_tweet(
-                tweet_text=tweet_dict["text"],
-                target_player=self.player_display_name,
-                tweet_url=tweet_dict["url"],
-                tweet_id=tweet_dict["id"]
+            processing_result = await self.processing_service.process_tweets_to_milestones(
+                tweets=search_result.tweets,
+                target_player=self.config.player_display_name
             )
             
-            if milestone:
-                milestones.append(milestone)
-                logger.info(f"Found milestone: {milestone.title}")
-        
-        return milestones
-        
+            if processing_result.milestones:
+                milestone_batches.append((processing_result.milestones, search_result.tweets))
+                logger.info(f"Found {processing_result.milestones_found} milestones")
             
+            total_tweets_processed += processing_result.tweets_processed
         
+        # Step 4: Aggregate and deduplicate results
+        if milestone_batches:
+            aggregation_result = self.aggregation_service.aggregate_milestone_results(milestone_batches)
+            
+            # Step 5: Write results to CSV
+            await self.csv_formatter.write_milestones_to_csv(
+                milestones=aggregation_result.milestones,
+                tweets=aggregation_result.source_tweets,
+                player_name=self.config.player_display_name
+            )
+            
+            logger.info(f"Scraping complete: {len(aggregation_result.milestones)} unique milestones, "
+                       f"{aggregation_result.duplicates_removed} duplicates removed")
+            
+            return self._create_results_summary(
+                len(aggregation_result.milestones),
+                total_tweets_processed,
+                aggregation_result.milestones
+            )
+        else:
+            logger.warning("No milestones found after processing")
+            await self._write_empty_results()
+            return self._create_results_summary(0, total_tweets_processed, [])
+    
+    async def _setup_team_information(self) -> None:
+        """Setup team information for the player"""
+        try:
+            from utils.roster_cache import lookup_player_team_with_id
+            
+            # First check if team info already available in config
+            if self.config.team_name and self.config.team_id:
+                logger.info(f"Using config team info: {self.config.player_display_name} plays for {self.config.team_name} (ID: {self.config.team_id})")
+                return
+            
+            # Try to lookup team dynamically
+            logger.info(f"Looking up team information for {self.config.player_display_name}")
+            team_info = lookup_player_team_with_id(self.config.player_display_name)
+            
+            if team_info:
+                self.config.team_name, self.config.team_id = team_info
+                logger.info(f"{self.config.player_display_name} plays for {self.config.team_name} (ID: {self.config.team_id})")
+            else:
+                logger.warning(f"Could not find team for {self.config.player_display_name}")
+                
+        except Exception as e:
+            logger.error(f"Error setting up team information: {e}")
+    
+    async def _write_empty_results(self) -> None:
+        """Write empty CSV when no results found"""
+        try:
+            await self.csv_formatter.write_milestones_to_csv(
+                milestones=[],
+                tweets=[],
+                player_name=self.config.player_display_name
+            )
+            logger.info("Empty results written to CSV")
+        except Exception as e:
+            logger.error(f"Error writing empty results: {e}")
+    
+    def _create_results_summary(self, milestones_count: int, tweets_processed: int, milestones: List) -> Dict:
+        """Create results summary dictionary"""
+        return {
+            'player': self.config.player_display_name,
+            'date_range': f"{self.config.start_date} to {self.config.end_date}",
+            'milestones_found': milestones_count,
+            'tweets_processed': tweets_processed,
+            'output_file': self.config.output_file,
+            'milestones': milestones
+        }
+    
     def run(self) -> Dict:
         """
         Run the scraper synchronously
