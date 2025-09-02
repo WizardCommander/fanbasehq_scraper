@@ -30,6 +30,7 @@ class MilestoneData:
     date_context: str
     source_reliability: float  # 0-1 confidence score
     source_tweet_id: str  # ID of the tweet this milestone came from
+    content_hash: str = ""  # Semantic hash for deduplication
     # Internal fields for debugging/processing (not exported to CSV)
     extracted_date: str = ""  # Date found in tweet text
     date_confidence: float = 0.0  # 0-1 confidence in extracted date
@@ -104,6 +105,16 @@ class AIParser:
                 )
                 return None
 
+            # Generate content hash for deduplication
+            from utils.deduplication import MilestoneDeduplicator
+
+            deduplicator = MilestoneDeduplicator()
+            content_hash = deduplicator.generate_content_hash(
+                title=result.get("title", ""),
+                categories=result.get("categories", []),
+                value=result.get("value", ""),
+            )
+
             return MilestoneData(
                 is_milestone=result.get("is_milestone", False),
                 title=result.get("title", ""),
@@ -115,6 +126,7 @@ class AIParser:
                 date_context=result.get("date_context", ""),
                 source_reliability=result.get("source_reliability", 0.5),
                 source_tweet_id=tweet_id,
+                content_hash=content_hash,
                 # Internal debugging fields
                 extracted_date=result.get("extracted_date", ""),
                 date_confidence=result.get("date_confidence", 0.0),
