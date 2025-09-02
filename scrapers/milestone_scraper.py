@@ -130,7 +130,9 @@ class MilestoneScraper:
             
             processing_result = await self.processing_service.process_tweets_to_milestones(
                 tweets=search_result.tweets,
-                target_player=self.config.player_display_name
+                target_player=self.config.player_display_name,
+                start_date=self.config.start_date,
+                end_date=self.config.end_date
             )
             
             if processing_result.milestones:
