@@ -55,7 +55,7 @@ DEFAULT_CACHE_HOURS = 6         # Default cache expiration time
 CURRENT_SEASON_CACHE_HOURS = 1  # Cache time for current season data
 
 # AI Parser Configuration (GPT)
-GPT_MODEL = 'gpt-3.5-turbo'  # Can upgrade to 'gpt-4' later if needed
+GPT_MODEL = 'gpt-4o-mini'
 GPT_MAX_TOKENS = 1000
 GPT_TEMPERATURE = 0.1  # Low temperature for consistent parsing
 

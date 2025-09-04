@@ -247,6 +247,12 @@ CRITICAL INSTRUCTIONS - READ CAREFULLY:
    - "on this day in 2024", "last season", "in her rookie year" 
    - Specific dates like "August 18, 2024"
    - Game contexts like "against the Wings", "in yesterday's game"
+   
+   CRITICAL: DO NOT assign today's date to historical/career achievements:
+   - "first in WNBA history" = LEAVE DATE BLANK (career milestone, not tied to specific game)
+   - "most in a season" = LEAVE DATE BLANK (season achievement, not single game)
+   - "career record" = LEAVE DATE BLANK (cumulative achievement)
+   - Only assign dates when milestone clearly occurred on a specific game date
 
 4. CONFIDENCE SCORING:
    - milestone_confidence: How certain this is a genuine milestone (0-1)
