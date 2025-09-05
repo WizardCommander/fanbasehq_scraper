@@ -13,6 +13,8 @@ from dateutil import parser as date_parser
 from parsers.ai_parser import MilestoneData
 from utils.roster_cache import lookup_player_team
 from utils.player_game_logs import get_player_recent_game
+from services.preseason_schedule_service import validate_preseason_game
+from utils.roster_cache import lookup_player_team
 from config.settings import (
     HIGH_CONFIDENCE_THRESHOLD,
     BOXSCORE_ANALYSIS_CONFIDENCE,
@@ -43,6 +45,11 @@ class MilestoneDateResolver:
     CONTEXT_PATTERNS = [
         r"on this day in (\d{4})",
         r"in (\d{4})",
+        r"on this day last year",
+        r"one year ago today",
+        r"a year ago today",
+        r"this day (\d+) years? ago",
+        r"(\d+) years? ago today",
         r"last season",
         r"her rookie season",
         r"rookie year",
@@ -144,13 +151,28 @@ class MilestoneDateResolver:
                     f"Text-parsed date {parsed_date} not valid - player didn't play that day"
                 )
 
-        # Strategy 4: Use most recent game date (only if confidence meets threshold)
+        # Strategy 4: Use most recent game date (regular season or preseason)
         game_date = await self._find_recent_game_date(
             player_name, tweet_created_at.date()
         )
         if game_date and GAME_SCHEDULE_CONFIDENCE >= MINIMUM_DATE_CONFIDENCE:
-            logger.info(f"Using most recent game date: {game_date}")
-            return game_date, "game_schedule", GAME_SCHEDULE_CONFIDENCE
+            # Determine if this was a preseason or regular season game
+            source_type = "game_schedule"  # Default
+            try:
+                team_name = lookup_player_team(player_name)
+                if team_name:
+                    preseason_valid = await validate_preseason_game(
+                        team_name, game_date, game_date.year
+                    )
+                    if preseason_valid:
+                        source_type = "preseason_schedule"
+            except Exception as e:
+                logger.debug(f"Error determining game type: {e}")
+
+            logger.info(
+                f"Using most recent game date: {game_date} (source: {source_type})"
+            )
+            return game_date, source_type, GAME_SCHEDULE_CONFIDENCE
 
         # Strategy 5: Conservative fallback - return None for blank date
         logger.warning(
@@ -161,13 +183,37 @@ class MilestoneDateResolver:
     async def _find_recent_game_date(
         self, player_name: str, tweet_date: date
     ) -> Optional[date]:
-        """Find most recent game where player actually played using individual game logs"""
+        """Find most recent game where player actually played using individual game logs and preseason schedules"""
         try:
-            # Use player-specific game logs instead of team schedules
+            # First try regular season games
             recent_game_date = await get_player_recent_game(player_name, tweet_date)
             if recent_game_date:
-                logger.debug(f"Found recent game for {player_name}: {recent_game_date}")
+                logger.debug(
+                    f"Found recent regular season game for {player_name}: {recent_game_date}"
+                )
                 return recent_game_date
+
+            # If no regular season game found, check preseason games
+            team_name = lookup_player_team(player_name)
+            if team_name:
+                from services.preseason_schedule_service import PreseasonScheduleService
+
+                async with PreseasonScheduleService() as preseason_service:
+                    season = tweet_date.year
+                    preseason_dates = await preseason_service.get_team_preseason_dates(
+                        team_name, season
+                    )
+
+                    # Find most recent preseason game before tweet date
+                    valid_preseason_dates = [
+                        d for d in preseason_dates if d < tweet_date
+                    ]
+                    if valid_preseason_dates:
+                        most_recent_preseason = max(valid_preseason_dates)
+                        logger.debug(
+                            f"Found recent preseason game for {player_name}'s team ({team_name}): {most_recent_preseason}"
+                        )
+                        return most_recent_preseason
 
             logger.debug(f"No recent games found for {player_name}")
             return None
@@ -182,6 +228,7 @@ class MilestoneDateResolver:
     ) -> bool:
         """
         Validate that the player actually played on the target date
+        Checks both regular season (SportDataverse) and preseason games (ESPN API)
 
         Args:
             target_date: Date to validate
@@ -191,18 +238,45 @@ class MilestoneDateResolver:
             True if player played on that date, False otherwise
         """
         try:
+            # First check regular season games using existing logic
             from utils.player_game_logs import PlayerGameLogService
 
-            # Check if player played on this specific date
             service = PlayerGameLogService(
                 force_refresh=False
             )  # Use cache for validation
 
-            # Get player's game dates for the season
+            # Get player's regular season game dates
             season = target_date.year
             player_game_dates = await service.get_player_game_dates(player_name, season)
 
-            return target_date in player_game_dates
+            # Check regular season first
+            if target_date in player_game_dates:
+                logger.debug(
+                    f"Found regular season game for {player_name} on {target_date}"
+                )
+                return True
+
+            # If not found in regular season, check preseason games
+            team_name = lookup_player_team(player_name)
+            if team_name:
+                preseason_valid = await validate_preseason_game(
+                    team_name, target_date, season
+                )
+                if preseason_valid:
+                    logger.debug(
+                        f"Found preseason game for {player_name}'s team ({team_name}) on {target_date}"
+                    )
+                    return True
+                else:
+                    logger.debug(
+                        f"No preseason game found for {team_name} on {target_date}"
+                    )
+            else:
+                logger.warning(
+                    f"Could not find team for {player_name} to check preseason games"
+                )
+
+            return False
 
         except Exception as e:
             logger.error(f"Error validating game date: {e}")
@@ -224,6 +298,41 @@ class MilestoneDateResolver:
                         milestone_date = tweet_date.replace(year=year).date()
                         return milestone_date, f"on this day in {year}"
                     except:
+                        pass
+
+                elif (
+                    "last year" in match.group().lower()
+                    or "year ago" in match.group().lower()
+                ):
+                    try:
+                        # Calculate date one year ago from tweet date
+                        milestone_date = tweet_date.replace(
+                            year=tweet_date.year - 1
+                        ).date()
+                        return milestone_date, "one year ago"
+                    except ValueError:
+                        # Handle leap year edge case (Feb 29)
+                        try:
+                            milestone_date = tweet_date.replace(
+                                year=tweet_date.year - 1, day=28
+                            ).date()
+                            return milestone_date, "one year ago (leap year adjusted)"
+                        except:
+                            pass
+
+                elif "years ago" in match.group().lower():
+                    try:
+                        # Extract number of years and calculate date
+                        years_back = (
+                            int(match.group(1))
+                            if hasattr(match, "group") and len(match.groups()) > 0
+                            else 1
+                        )
+                        milestone_date = tweet_date.replace(
+                            year=tweet_date.year - years_back
+                        ).date()
+                        return milestone_date, f"{years_back} years ago"
+                    except (ValueError, IndexError):
                         pass
 
                 elif (

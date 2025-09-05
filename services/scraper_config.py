@@ -33,6 +33,7 @@ class ScraperConfig:
 
     # Advanced settings
     enable_game_validation: bool = True
+    enable_preseason_validation: bool = True
     max_retries: int = 3
 
     @classmethod
@@ -55,6 +56,7 @@ class ScraperConfig:
             "team_name": self.team_name,
             "team_id": self.team_id,
             "enable_game_validation": self.enable_game_validation,
+            "enable_preseason_validation": self.enable_preseason_validation,
             "max_retries": self.max_retries,
         }
 

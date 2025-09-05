@@ -1,0 +1,86 @@
+{
+  "last_updated": 0,
+  "schedules": {
+    "preseason_2025": {
+      "teams": {
+        "Atlanta Dream": [
+          "2025-05-07",
+          "2025-05-10"
+        ],
+        "Chicago Sky": [
+          "2025-05-06",
+          "2025-05-11"
+        ],
+        "Connecticut Sun": [
+          "2025-05-09"
+        ],
+        "Dallas Wings": [
+          "2025-05-11"
+        ],
+        "Golden State Valkyries": [
+          "2025-05-07",
+          "2025-05-11"
+        ],
+        "Indiana Fever": [
+          "2025-05-03",
+          "2025-05-04",
+          "2025-05-10"
+        ],
+        "Las Vegas Aces": [
+          "2025-05-07"
+        ],
+        "Los Angeles Sparks": [
+          "2025-05-07"
+        ],
+        "Minnesota Lynx": [
+          "2025-05-06",
+          "2025-05-11"
+        ],
+        "New York Liberty": [
+          "2025-05-09",
+          "2025-05-13"
+        ],
+        "Phoenix Mercury": [
+          "2025-05-07",
+          "2025-05-11"
+        ],
+        "Washington Mystics": [
+          "2025-05-07"
+        ]
+      },
+      "total_dates": 18,
+      "last_updated": "2025-09-04T19:17:59.344620",
+      "source": "espn_team_api",
+      "successful_teams": 12
+    },
+    "preseason_2024": {
+      "teams": {
+        "Atlanta Dream": [
+          "2024-05-09"
+        ],
+        "Connecticut Sun": [
+          "2024-05-09"
+        ],
+        "Indiana Fever": [
+          "2024-05-09"
+        ],
+        "Las Vegas Aces": [
+          "2024-05-11"
+        ],
+        "Los Angeles Sparks": [
+          "2024-05-11"
+        ],
+        "New York Liberty": [
+          "2024-05-09"
+        ],
+        "Phoenix Mercury": [
+          "2024-05-11"
+        ]
+      },
+      "total_dates": 7,
+      "last_updated": "2025-09-04T20:08:58.359509",
+      "source": "espn_team_api",
+      "successful_teams": 7
+    }
+  }
+}
