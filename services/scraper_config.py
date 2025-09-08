@@ -25,7 +25,7 @@ class ScraperConfig:
 
     # Player and account configuration
     player_variations: List[str] = field(default_factory=list)
-    milestone_accounts: List[str] = field(default_factory=list)
+    target_accounts: List[str] = field(default_factory=list)
 
     # Team information (populated dynamically)
     team_name: str = ""
@@ -52,7 +52,7 @@ class ScraperConfig:
             "limit": self.limit,
             "force_refresh": self.force_refresh,
             "player_variations": self.player_variations,
-            "milestone_accounts": self.milestone_accounts,
+            "target_accounts": self.target_accounts,
             "team_name": self.team_name,
             "team_id": self.team_id,
             "enable_game_validation": self.enable_game_validation,
@@ -80,5 +80,5 @@ class ScraperConfig:
         if not self.player_variations:
             raise ValueError("At least one player variation is required")
 
-        if not self.milestone_accounts:
-            raise ValueError("At least one milestone account is required")
+        if not self.target_accounts:
+            raise ValueError("At least one target account is required")

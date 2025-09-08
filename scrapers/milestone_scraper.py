@@ -69,7 +69,7 @@ class MilestoneScraper:
             output_file=output_file,
             limit=limit,
             player_variations=player_config.get('variations', []),
-            milestone_accounts=accounts_config.get('twitter_accounts', {}).get('milestone_accounts', [])
+            target_accounts=accounts_config.get('twitter_accounts', {}).get('milestone_accounts', [])
         )
         
         return cls(config)
@@ -107,9 +107,9 @@ class MilestoneScraper:
         await self._setup_team_information()
         
         # Step 2: Search Twitter for tweets
-        logger.info(f"Searching across {len(self.config.milestone_accounts)} accounts with {len(self.config.player_variations)} variations")
+        logger.info(f"Searching across {len(self.config.target_accounts)} accounts with {len(self.config.player_variations)} variations")
         search_results = await self.twitter_service.search_tweets_for_player(
-            accounts=self.config.milestone_accounts,
+            accounts=self.config.target_accounts,
             variations=self.config.player_variations,
             start_date=self.config.start_date,
             end_date=self.config.end_date,

@@ -4,6 +4,8 @@ AI-powered parser using OpenAI GPT for milestone extraction
 
 import json
 import logging
+import re
+from datetime import datetime, date
 from typing import Dict, Optional, List
 from dataclasses import dataclass
 
@@ -11,6 +13,7 @@ from openai import OpenAI
 import openai
 
 from config.settings import OPENAI_API_KEY, GPT_MODEL, GPT_MAX_TOKENS, GPT_TEMPERATURE
+from utils.branded_types import TweetId, tweet_id as create_tweet_id
 
 
 logger = logging.getLogger(__name__)
@@ -29,7 +32,7 @@ class MilestoneData:
     player_name: str
     date_context: str
     source_reliability: float  # 0-1 confidence score
-    source_tweet_id: str  # ID of the tweet this milestone came from
+    source_tweet_id: TweetId  # ID of the tweet this milestone came from
     content_hash: str = ""  # Semantic hash for deduplication
     # Internal fields for debugging/processing (not exported to CSV)
     extracted_date: str = ""  # Date found in tweet text
@@ -41,6 +44,27 @@ class MilestoneData:
     date_source: str = (
         "tweet_published"  # tweet_text, game_schedule_inferred, tweet_published
     )
+
+
+@dataclass
+class TunnelFitData:
+    """Structured tunnel fit data extracted by AI"""
+
+    is_tunnel_fit: bool
+    event: str  # "Fever vs Sky | Indianapolis, IN"
+    date: Optional[date]  # Extracted from post text or tweet date
+    type: str  # "gameday" or "events"
+    outfit_details: List[
+        Dict
+    ]  # [{"item": "...", "brand": "...", "price": "...", "affiliate": bool}]
+    location: str  # "Indianapolis, IN"
+    player_name: str
+    source_tweet_id: TweetId  # ID of the tweet this tunnel fit came from
+    social_stats: Dict  # {"views": 3702, "likes": 122, etc.}
+    # Internal fields for debugging/processing
+    date_confidence: float = 0.0  # 0-1 confidence in extracted date
+    fit_confidence: float = 0.0  # 0-1 confidence this is a genuine tunnel fit
+    date_source: str = "tweet_text"  # "tweet_text" or "tweet_published"
 
 
 class AIParser:
@@ -125,7 +149,7 @@ class AIParser:
                 player_name=result.get("player_name", ""),
                 date_context=result.get("date_context", ""),
                 source_reliability=result.get("source_reliability", 0.5),
-                source_tweet_id=tweet_id,
+                source_tweet_id=create_tweet_id(tweet_id),
                 content_hash=content_hash,
                 # Internal debugging fields
                 extracted_date=result.get("extracted_date", ""),
@@ -332,6 +356,231 @@ ACCEPT Examples:
 
         logger.info(f"Found {len(milestones)} milestones out of {len(tweets)} tweets")
         return milestones
+
+    def parse_tunnel_fit_tweet(
+        self,
+        tweet_text: str,
+        target_player: str,
+        tweet_url: str = "",
+        tweet_id: str = "",
+        tweet_created_at: Optional[datetime] = None,
+    ) -> Optional[TunnelFitData]:
+        """
+        Parse a tweet to extract tunnel fit information using GPT and date extraction
+
+        Args:
+            tweet_text: The tweet content to analyze
+            target_player: The specific player we're scraping for
+            tweet_url: Optional URL for reference
+            tweet_id: Optional tweet ID for reference
+            tweet_created_at: Tweet creation date for fallback
+
+        Returns:
+            TunnelFitData object if tunnel fit found, None otherwise
+        """
+        prompt = self._create_tunnel_fit_prompt(tweet_text, target_player, tweet_url)
+
+        try:
+            response = self.client.chat.completions.create(
+                model=GPT_MODEL,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a fashion and style expert specializing in sports outfit analysis. Parse tweets for player outfit/tunnel fit information from style accounts.",
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                max_tokens=GPT_MAX_TOKENS,
+                temperature=GPT_TEMPERATURE,
+                response_format={"type": "json_object"},
+            )
+
+            result = json.loads(response.choices[0].message.content)
+
+            if not result.get("is_tunnel_fit", False):
+                return None
+
+            # Resolve final date using AI result with fallback
+            final_date, date_source, date_confidence = self._resolve_tunnel_fit_date(
+                result, tweet_text, tweet_created_at
+            )
+
+            return TunnelFitData(
+                is_tunnel_fit=result.get("is_tunnel_fit", False),
+                event=result.get("event", ""),
+                date=final_date,
+                type=result.get("type", ""),
+                outfit_details=result.get("outfit_details", []),
+                location=result.get("location", ""),
+                player_name=result.get("player_name", ""),
+                source_tweet_id=create_tweet_id(tweet_id),
+                social_stats=result.get("social_stats", {}),
+                date_confidence=date_confidence,
+                fit_confidence=result.get("fit_confidence", 0.0),
+                date_source=date_source,
+            )
+
+        except json.JSONDecodeError as e:
+            logger.error(f"Invalid JSON response from GPT for tunnel fit: {e}")
+            return None
+        except openai.APIError as e:
+            logger.error(f"OpenAI API error for tunnel fit: {e}")
+            return None
+        except openai.RateLimitError as e:
+            logger.warning(f"OpenAI rate limit exceeded for tunnel fit: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Unexpected error parsing tunnel fit tweet with GPT: {e}")
+            return None
+
+    def _resolve_tunnel_fit_date(
+        self, 
+        ai_result: dict, 
+        tweet_text: str, 
+        tweet_created_at: Optional[datetime] = None
+    ) -> tuple[Optional[date], str, float]:
+        """
+        Resolve final date from AI result with fallback to text extraction
+        
+        Args:
+            ai_result: AI parsing result dictionary
+            tweet_text: Tweet content for fallback extraction
+            tweet_created_at: Tweet creation datetime for final fallback
+            
+        Returns:
+            Tuple of (date, source, confidence)
+        """
+        # Try AI-extracted date first
+        if ai_result.get("date"):
+            try:
+                ai_date_str = ai_result.get("date")
+                final_date = datetime.strptime(ai_date_str, "%Y-%m-%d").date()
+                logger.info(f"Using AI-extracted date: {final_date}")
+                return final_date, "ai_extraction", 0.9
+            except (ValueError, TypeError):
+                logger.warning(f"Could not parse AI-extracted date: {ai_date_str}")
+        
+        # Fall back to regex extraction if AI didn't find a date
+        logger.debug("AI did not provide date, falling back to regex extraction")
+        return self._extract_date_from_text(tweet_text, tweet_created_at)
+
+    def _extract_date_from_text(
+        self, tweet_text: str, tweet_created_at: Optional[datetime] = None
+    ) -> tuple[Optional[date], str, float]:
+        """
+        Extract date from tweet text with fallback to tweet creation date
+
+        Args:
+            tweet_text: Tweet content to search for dates
+            tweet_created_at: Tweet creation datetime for fallback
+
+        Returns:
+            Tuple of (date, source, confidence)
+        """
+        # Look for explicit dates in text like "September 5, 2025:" or "March 25, 2025:"
+        date_patterns = [
+            r"(\w+\s+\d{1,2},\s+\d{4}):",  # "September 5, 2025:"
+            r"(\d{1,2}/\d{1,2}/\d{4}):",  # "9/5/2024:"
+            r"(\d{4}-\d{2}-\d{2}):",  # "2024-09-05:"
+        ]
+
+        for pattern in date_patterns:
+            match = re.search(pattern, tweet_text)
+            if match:
+                date_str = match.group(1)
+                try:
+                    # Try to parse the found date
+                    if "/" in date_str:
+                        parsed_date = datetime.strptime(date_str, "%m/%d/%Y").date()
+                    elif "-" in date_str:
+                        parsed_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+                    else:
+                        parsed_date = datetime.strptime(date_str, "%B %d, %Y").date()
+
+                    logger.info(
+                        f"Extracted date from text: {date_str} -> {parsed_date}"
+                    )
+                    return parsed_date, "tweet_text", 0.9
+                except ValueError:
+                    logger.warning(f"Could not parse extracted date: {date_str}")
+                    continue
+
+        # Fallback to tweet creation date
+        if tweet_created_at:
+            logger.info(
+                f"Using tweet creation date as fallback: {tweet_created_at.date()}"
+            )
+            return tweet_created_at.date(), "tweet_published", 0.5
+
+        return None, "no_date_found", 0.0
+
+    def _create_tunnel_fit_prompt(
+        self, tweet_text: str, target_player: str, tweet_url: str = ""
+    ) -> str:
+        """Create the prompt for GPT tunnel fit parsing"""
+
+        return f"""
+Analyze this tweet for tunnel fit/outfit information about "{target_player}":
+
+Tweet: "{tweet_text}"
+URL: {tweet_url}
+
+INSTRUCTIONS:
+
+1. TUNNEL FIT IDENTIFICATION - Only classify as tunnel fit if:
+   - Contains outfit/fashion/style information about {target_player}
+   - Shows or describes what {target_player} is wearing
+   - From a style or fashion-focused account
+   - NOT just general game stats or performance info
+
+2. OUTFIT DETAILS EXTRACTION - Parse structured outfit information:
+   - Item names (e.g., "Sevyn Jacket", "Chocolate patent leather loafers")
+   - Brand names (e.g., "@Prada", "@veronicabeard", "Veronica Beard")
+   - Prices (e.g., "$748", "$1200")
+   - Shopping links (shopmy.us, go.shopmy.us links)
+   - Affiliate status (true if contains affiliate links)
+
+3. EVENT CLASSIFICATION:
+   - "gameday" if mentions vs/against another team, game context
+   - "events" if mentions named events, appearances, non-game activities
+
+4. LOCATION EXTRACTION - Pull city/venue from event context
+
+5. SOCIAL STATS - Extract engagement metrics if visible (views, likes, etc.)
+
+Return JSON format:
+{{
+  "is_tunnel_fit": boolean,
+  "event": "Event name and context",
+  "type": "gameday" or "events",
+  "outfit_details": [
+    {{
+      "item": "Item name",
+      "brand": "Brand name",
+      "price": "$XXX",
+      "shopLink": "URL if available",
+      "affiliate": true/false
+    }}
+  ],
+  "location": "City, State",
+  "player_name": "{target_player}",
+  "social_stats": {{
+    "views": number,
+    "likes": number
+  }},
+  "fit_confidence": 0.9
+}}
+
+REJECT Examples (return is_tunnel_fit: false):
+- Game stats or performance tweets
+- General basketball discussion
+- Tweets not about {target_player}'s outfits
+
+ACCEPT Examples:
+- Style account posts about {target_player}'s outfits
+- Tunnel walk outfit descriptions
+- Fashion/outfit breakdowns with brands and prices
+"""
 
 
 # Unused functions removed for production - see development branch for utilities

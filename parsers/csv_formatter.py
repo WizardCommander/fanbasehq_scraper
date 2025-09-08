@@ -244,4 +244,3 @@ class MilestoneCSVFormatter:
         return [row.get("original_submission_id", "") for row in existing_rows]
 
 
-# Sample function removed for production - see development branch for testing utilities

@@ -91,13 +91,13 @@ class ResultAggregationService:
         tweet_lookup = {tweet.id: tweet for tweet in tweets}
 
         for milestone in milestones:
-            if milestone.source_tweet_id not in self.processed_tweet_ids:
+            if milestone.source_tweet_id.value not in self.processed_tweet_ids:
                 # Not a duplicate, add to results
-                self.processed_tweet_ids.add(milestone.source_tweet_id)
+                self.processed_tweet_ids.add(milestone.source_tweet_id.value)
                 deduplicated_milestones.append(milestone)
 
                 # Find corresponding tweet
-                source_tweet = tweet_lookup.get(milestone.source_tweet_id)
+                source_tweet = tweet_lookup.get(milestone.source_tweet_id.value)
                 if source_tweet:
                     deduplicated_tweets.append(source_tweet)
                 else:
@@ -111,7 +111,7 @@ class ResultAggregationService:
                 # Duplicate found
                 duplicates_removed += 1
                 logger.debug(
-                    f"Skipping duplicate milestone from tweet {milestone.source_tweet_id}: {milestone.title}"
+                    f"Skipping duplicate milestone from tweet {milestone.source_tweet_id.value}: {milestone.title}"
                 )
 
         return AggregationResult(
@@ -204,7 +204,7 @@ class ResultAggregationService:
 
         # Reconstruct tweet list for final milestones
         for milestone in final_milestones:
-            source_tweet = tweet_lookup.get(milestone.source_tweet_id)
+            source_tweet = tweet_lookup.get(milestone.source_tweet_id.value)
             if source_tweet:
                 final_tweets.append(source_tweet)
 
@@ -246,8 +246,8 @@ class ResultAggregationService:
             "description": milestone.description,
             "content_hash": milestone.content_hash,
             "source_reliability": milestone.source_reliability,
-            "source_tweet_url": f"https://twitter.com/unknown/status/{milestone.source_tweet_id}",
-            "source_tweet_id": milestone.source_tweet_id,
+            "source_tweet_url": f"https://twitter.com/unknown/status/{milestone.source_tweet_id.value}",
+            "source_tweet_id": milestone.source_tweet_id.value,
         }
 
     def _dict_to_milestone(
@@ -257,7 +257,7 @@ class ResultAggregationService:
         target_tweet_id = milestone_dict.get("source_tweet_id")
 
         for milestone in original_group:
-            if milestone.source_tweet_id == target_tweet_id:
+            if milestone.source_tweet_id.value == target_tweet_id:
                 return milestone
 
         # Fallback to first milestone if match not found

@@ -88,6 +88,11 @@ scraped_data/
 # Test files
 test_output/
 *_test.csv
+**/test_*.py
+**/*_test.py
+**/*.spec.py
+**/test/
+tests/
 
 # MD files
 HANDOFF_NOTES.md

@@ -131,8 +131,17 @@ Examples:
             return 1
             
         elif args.type == 'tunnel-fits':
-            logger.warning("Tunnel fit scraper coming soon!")
-            return 1
+            from scrapers.tunnel_fit_scraper import TunnelFitScraper
+            scraper = TunnelFitScraper.create_from_legacy_params(
+                player=args.player,
+                start_date=start_date,
+                end_date=end_date,
+                output_file=str(args.output),
+                limit=args.limit
+            )
+            results = scraper.run()
+            logger.info(f"Successfully scraped {results['tunnel_fits_found']} tunnel fits")
+            logger.info(f"Results saved to: {args.output}")
             
     except KeyboardInterrupt:
         logger.info("Scraping interrupted by user")
