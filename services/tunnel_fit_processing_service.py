@@ -70,6 +70,15 @@ class TunnelFitProcessingService:
                 )
 
                 if tunnel_fit and tunnel_fit.is_tunnel_fit:
+                    # Override AI-extracted social stats with real Twitter metrics
+                    tunnel_fit.social_stats = {
+                        "views": tweet.view_count,
+                        "likes": tweet.like_count,
+                        "retweets": tweet.retweet_count,
+                        "replies": tweet.reply_count,
+                        "quotes": tweet.quote_count,
+                    }
+
                     # Apply date filtering inline
                     within_range = True
                     if tunnel_fit.date:

@@ -97,7 +97,7 @@ class TunnelFitCSVFormatter:
             "image_data": "",  # TwitterAPI.io doesn't provide image data
             "outfit_details": outfit_details_json,
             "social_stats": social_stats_json,
-            "source": "",  # Could be populated with account name
+            "source": tweet.author_handle,  # Twitter account name (e.g. @caitlinclarksty)
             "source_link": tweet.url,
             "photographer": "",
             "photographer_link": "",

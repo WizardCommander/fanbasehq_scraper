@@ -434,19 +434,19 @@ ACCEPT Examples:
             return None
 
     def _resolve_tunnel_fit_date(
-        self, 
-        ai_result: dict, 
-        tweet_text: str, 
-        tweet_created_at: Optional[datetime] = None
+        self,
+        ai_result: dict,
+        tweet_text: str,
+        tweet_created_at: Optional[datetime] = None,
     ) -> tuple[Optional[date], str, float]:
         """
         Resolve final date from AI result with fallback to text extraction
-        
+
         Args:
             ai_result: AI parsing result dictionary
             tweet_text: Tweet content for fallback extraction
             tweet_created_at: Tweet creation datetime for final fallback
-            
+
         Returns:
             Tuple of (date, source, confidence)
         """
@@ -459,7 +459,7 @@ ACCEPT Examples:
                 return final_date, "ai_extraction", 0.9
             except (ValueError, TypeError):
                 logger.warning(f"Could not parse AI-extracted date: {ai_date_str}")
-        
+
         # Fall back to regex extraction if AI didn't find a date
         logger.debug("AI did not provide date, falling back to regex extraction")
         return self._extract_date_from_text(tweet_text, tweet_created_at)
@@ -546,8 +546,6 @@ INSTRUCTIONS:
 
 4. LOCATION EXTRACTION - Pull city/venue from event context
 
-5. SOCIAL STATS - Extract engagement metrics if visible (views, likes, etc.)
-
 Return JSON format:
 {{
   "is_tunnel_fit": boolean,
@@ -564,10 +562,6 @@ Return JSON format:
   ],
   "location": "City, State",
   "player_name": "{target_player}",
-  "social_stats": {{
-    "views": number,
-    "likes": number
-  }},
   "fit_confidence": 0.9
 }}
 

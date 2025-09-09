@@ -224,10 +224,10 @@ class TwitterAPIClient:
                 logger.debug("Filtering out reply tweet %s", tweet_id)
                 return None
 
-            # Extract author info
+            # Extract author info - TwitterAPI.io uses camelCase 'userName'
             author_info = tweet_data.get("author", {})
             author_name = author_info.get("name", "")
-            author_username = author_info.get("username", "")
+            author_username = author_info.get("userName", "")
 
             # Extract dates - TwitterAPI.io uses camelCase 'createdAt'
             created_at_str = tweet_data.get("createdAt", "") or tweet_data.get(
@@ -254,13 +254,12 @@ class TwitterAPIClient:
 
                 created_at = datetime(2024, 8, 27, 12, 0, 0, tzinfo=timezone.utc)
 
-            # Extract engagement metrics
-            public_metrics = tweet_data.get("public_metrics", {})
-            retweet_count = public_metrics.get("retweet_count", 0)
-            like_count = public_metrics.get("like_count", 0)
-            reply_count = public_metrics.get("reply_count", 0)
-            quote_count = public_metrics.get("quote_count", 0)
-            view_count = public_metrics.get("impression_count")
+            # Extract engagement metrics - TwitterAPI.io uses camelCase directly on tweet object
+            retweet_count = tweet_data.get("retweetCount", 0)
+            like_count = tweet_data.get("likeCount", 0)
+            reply_count = tweet_data.get("replyCount", 0)
+            quote_count = tweet_data.get("quoteCount", 0)
+            view_count = tweet_data.get("viewCount")
 
             # Extract media/images
             images = []
