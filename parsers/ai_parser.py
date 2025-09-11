@@ -67,6 +67,40 @@ class TunnelFitData:
     date_source: str = "tweet_text"  # "tweet_text" or "tweet_published"
 
 
+@dataclass
+class ShoeData:
+    """Structured shoe data extracted by AI"""
+
+    is_shoe_post: bool
+    shoe_name: str  # "Nike Kobe 6 Protro 'Light Armory Blue'"
+    brand: str  # "Nike"
+    model: str  # "Kobe 6 Protro"
+    color_description: str  # "Light Armory Blue"
+    date: Optional[date]  # Tweet/post date - for game stats matching
+    release_date: Optional[date]  # Shoe's actual release date - from AI extraction or fallback
+    price: str  # "$190" (with currency symbol)
+    signature_shoe: bool
+    limited_edition: bool
+    performance_features: List[str]  # ["Zoom Air", "Herringbone Traction"]
+    description: str
+    player_name: str
+    source_tweet_id: TweetId
+    social_stats: Dict  # {"views": 3702, "likes": 122, etc.}
+    # Game stats integration - added by processing service
+    game_stats: Optional[Dict] = None  # Complex JSON structure from CSV schema
+    # Internal fields for debugging/processing
+    date_confidence: float = 0.0  # 0-1 confidence in extracted date
+    shoe_confidence: float = 0.0  # 0-1 confidence this is a genuine shoe post
+    date_source: str = "tweet_text"  # "tweet_text" or "tweet_published"
+    # Fields that may need fallback services
+    has_missing_data: bool = False
+    missing_fields: List[str] = None  # List of fields that need fallback
+    
+    def __post_init__(self):
+        if self.missing_fields is None:
+            self.missing_fields = []
+
+
 class AIParser:
     """AI parser using OpenAI GPT for content analysis"""
 
@@ -575,6 +609,278 @@ ACCEPT Examples:
 - Tunnel walk outfit descriptions
 - Fashion/outfit breakdowns with brands and prices
 """
+
+
+    def parse_shoe_tweet(
+        self,
+        tweet_text: str,
+        target_player: str,
+        tweet_url: str = "",
+        tweet_id: str = "",
+        tweet_created_at: Optional[datetime] = None,
+    ) -> Optional[ShoeData]:
+        """
+        Parse a tweet to extract shoe information using GPT and date extraction
+
+        Args:
+            tweet_text: The tweet content to analyze
+            target_player: The specific player we're scraping for
+            tweet_url: Optional URL for reference
+            tweet_id: Optional tweet ID for reference
+            tweet_created_at: Tweet creation date for fallback
+
+        Returns:
+            ShoeData object if shoe post found, None otherwise
+        """
+        prompt = self._create_shoe_prompt(tweet_text, target_player, tweet_url)
+
+        try:
+            response = self.client.chat.completions.create(
+                model=GPT_MODEL,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a sneaker and basketball shoe expert specializing in player footwear analysis. Parse tweets for basketball shoe information and product details.",
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                max_tokens=GPT_MAX_TOKENS,
+                temperature=GPT_TEMPERATURE,
+                response_format={"type": "json_object"},
+            )
+
+            result = json.loads(response.choices[0].message.content)
+
+            if not result.get("is_shoe_post", False):
+                return None
+
+            # Resolve final date using AI result with fallback
+            final_date, date_source, date_confidence = self._resolve_shoe_date(
+                result, tweet_text, tweet_created_at
+            )
+
+            # Try to extract shoe release date from AI result with robust parsing
+            shoe_release_date = self._parse_release_date(result.get("release_date"))
+
+            # Check for missing fields that might need fallback services (after processing)
+            missing_fields = []
+            if not shoe_release_date:
+                missing_fields.append("release_date")
+            if not result.get("price") or result.get("price") == "":
+                missing_fields.append("price")
+            if not result.get("performance_features"):
+                missing_fields.append("performance_features")
+
+            # Validate date relationships
+            date_validation_issues = self._validate_shoe_dates(final_date, shoe_release_date)
+            if date_validation_issues:
+                logger.warning(f"Date validation issues for shoe: {date_validation_issues}")
+
+            return ShoeData(
+                is_shoe_post=result.get("is_shoe_post", False),
+                shoe_name=result.get("shoe_name", ""),
+                brand=result.get("brand", ""),
+                model=result.get("model", ""),
+                color_description=result.get("color_description", ""),
+                date=final_date,  # Tweet/post date for game stats matching
+                release_date=shoe_release_date,  # Shoe's actual release date
+                price=result.get("price", ""),
+                signature_shoe=result.get("signature_shoe", False),
+                limited_edition=result.get("limited_edition", False),
+                performance_features=result.get("performance_features", []),
+                description=result.get("description", ""),
+                player_name=result.get("player_name", target_player),
+                source_tweet_id=create_tweet_id(tweet_id),
+                social_stats=result.get("social_stats", {}),
+                date_confidence=date_confidence,
+                shoe_confidence=result.get("shoe_confidence", 0.0),
+                date_source=date_source,
+                has_missing_data=len(missing_fields) > 0,
+                missing_fields=missing_fields,
+            )
+
+        except json.JSONDecodeError as e:
+            logger.error(f"Invalid JSON response from GPT for shoe: {e}")
+            return None
+        except openai.APIError as e:
+            logger.error(f"OpenAI API error for shoe: {e}")
+            return None
+        except openai.RateLimitError as e:
+            logger.warning(f"OpenAI rate limit exceeded for shoe: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Unexpected error parsing shoe tweet with GPT: {e}")
+            return None
+
+    def _resolve_shoe_date(
+        self,
+        ai_result: Dict,
+        tweet_text: str,
+        tweet_created_at: Optional[datetime] = None,
+    ) -> tuple[Optional[date], str, float]:
+        """Resolve the shoe date from AI extraction or fallback to tweet date"""
+        
+        # Try AI-extracted date first
+        if ai_result.get("extracted_date"):
+            try:
+                extracted_date = datetime.fromisoformat(
+                    ai_result["extracted_date"]
+                ).date()
+                return extracted_date, "tweet_text", ai_result.get("date_confidence", 0.8)
+            except (ValueError, TypeError):
+                logger.debug("Invalid date format from AI extraction")
+
+        # Fallback to tweet published date
+        if tweet_created_at:
+            return tweet_created_at.date(), "tweet_published", 0.5
+
+        # No date available
+        return None, "none", 0.0
+
+    def _create_shoe_prompt(self, tweet_text: str, target_player: str, tweet_url: str = "") -> str:
+        """Create prompt for shoe information extraction"""
+        return f"""
+Analyze this tweet for basketball shoe information related to {target_player}.
+
+TWEET TEXT: "{tweet_text}"
+URL: {tweet_url}
+
+CLASSIFICATION CRITERIA:
+1. SHOE POST IDENTIFICATION - Must contain:
+   - Specific basketball shoe model/brand information
+   - Related to {target_player} wearing or endorsing shoes
+   - From sneaker accounts, sports accounts, or shoe retailers
+   - NOT just general game highlights or performance stats
+
+2. SHOE DETAILS EXTRACTION:
+   - Full shoe name with colorway (e.g., "Nike Kobe 6 Protro 'Light Armory Blue'")
+   - Brand (Nike, Adidas, Jordan, etc.)
+   - Model line (Kobe 6 Protro, Air Jordan 1, etc.)
+   - Colorway/description (Light Armory Blue, Bred, etc.)
+   - Price information if mentioned
+   - Release date if mentioned
+   - Limited edition status
+   - Signature shoe status (player's signature model)
+   - Performance features (Zoom Air, React foam, etc.)
+
+3. DATE EXTRACTION:
+   - Look for dates in tweet text (game dates, release dates)
+   - Format as YYYY-MM-DD if found
+
+Return JSON format:
+{{
+  "is_shoe_post": boolean,
+  "shoe_name": "Full shoe name with colorway",
+  "brand": "Brand name",
+  "model": "Model line",
+  "color_description": "Colorway description",
+  "release_date": "YYYY-MM-DD or null",
+  "price": "$XXX or empty string",
+  "signature_shoe": boolean,
+  "limited_edition": boolean,
+  "performance_features": ["feature1", "feature2"],
+  "description": "Detailed description of the shoe post",
+  "player_name": "{target_player}",
+  "extracted_date": "YYYY-MM-DD if found in text",
+  "date_confidence": 0.0-1.0,
+  "shoe_confidence": 0.0-1.0
+}}
+
+REJECT Examples (return is_shoe_post: false):
+- General game stats or performance tweets
+- Tweets not mentioning specific shoe models
+- Generic basketball discussion
+- Tweets not about {target_player}'s footwear
+
+ACCEPT Examples:
+- Sneaker account posts about {target_player}'s game shoes
+- Shoe release announcements related to {target_player}
+- Product details about shoes worn by {target_player}
+"""
+
+    def _parse_release_date(self, release_date_str: Optional[str]) -> Optional[date]:
+        """
+        Robust parsing of shoe release dates from various formats
+        
+        Args:
+            release_date_str: Date string from AI extraction
+            
+        Returns:
+            Parsed date object or None if parsing fails
+        """
+        if not release_date_str or not isinstance(release_date_str, str):
+            return None
+            
+        # Clean the input string
+        cleaned_date = release_date_str.strip()
+        if not cleaned_date or cleaned_date.lower() in ['null', 'none', 'unknown', '']:
+            return None
+            
+        # Common date formats to try
+        date_formats = [
+            "%Y-%m-%d",        # 2025-10-01 (ISO format)
+            "%m/%d/%Y",        # 10/01/2025 (US format)
+            "%m-%d-%Y",        # 10-01-2025
+            "%B %d, %Y",       # October 1, 2025
+            "%b %d, %Y",       # Oct 1, 2025
+            "%Y/%m/%d",        # 2025/10/01
+            "%d/%m/%Y",        # 01/10/2025 (European format)
+            "%Y.%m.%d",        # 2025.10.01
+            "%Y%m%d",          # 20251001 (compact format)
+        ]
+        
+        for fmt in date_formats:
+            try:
+                parsed_date = datetime.strptime(cleaned_date, fmt).date()
+                logger.debug(f"Successfully parsed release date '{release_date_str}' using format '{fmt}'")
+                return parsed_date
+            except ValueError:
+                continue
+                
+        # Try ISO format parsing as fallback
+        try:
+            parsed_date = datetime.fromisoformat(cleaned_date).date()
+            logger.debug(f"Successfully parsed release date '{release_date_str}' using ISO format")
+            return parsed_date
+        except ValueError:
+            pass
+            
+        logger.warning(f"Could not parse release date: '{release_date_str}' - no matching format found")
+        return None
+
+    def _validate_shoe_dates(self, tweet_date: Optional[date], release_date: Optional[date]) -> List[str]:
+        """
+        Validate business logic relationships between shoe dates
+        
+        Args:
+            tweet_date: When the tweet was posted
+            release_date: When the shoe was released
+            
+        Returns:
+            List of validation issues (empty if no issues)
+        """
+        issues = []
+        
+        if not tweet_date and not release_date:
+            return issues  # No dates to validate
+            
+        if tweet_date and release_date:
+            # Basic business logic: can't tweet about a shoe before it's released
+            # Allow some tolerance for leaks/early announcements (30 days)
+            if release_date > tweet_date:
+                days_early = (release_date - tweet_date).days
+                if days_early > 30:  # More than 30 days before release
+                    issues.append(f"Tweet posted {days_early} days before shoe release - possible date error")
+                    
+            # Sanity check: very old release dates are probably parsing errors
+            if release_date.year < 1980:
+                issues.append(f"Release date {release_date} seems too old - possible parsing error")
+                
+            # Future release dates beyond reasonable horizon
+            if release_date.year > datetime.now().year + 5:
+                issues.append(f"Release date {release_date} is too far in future - possible parsing error")
+                
+        return issues
 
 
 # Unused functions removed for production - see development branch for utilities

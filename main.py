@@ -5,6 +5,7 @@ Modular scraper for WNBA player milestones, shoes, and tunnel fits
 """
 
 import argparse
+import asyncio
 import sys
 import logging
 from datetime import datetime, date
@@ -24,7 +25,7 @@ from utils.date_utils import parse_date, validate_date_range
 logger = logging.getLogger(__name__)
 
 
-def main():
+async def main():
     parser = argparse.ArgumentParser(
         description="Scrape WNBA player data for FanbaseHQ",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -127,8 +128,17 @@ Examples:
             logger.info(f"Results saved to: {args.output}")
             
         elif args.type == 'shoes':
-            logger.warning("Shoe scraper coming soon!")
-            return 1
+            from scrapers.shoe_scraper import ShoeScraper
+            scraper = ShoeScraper.create_from_legacy_params(
+                player=args.player,
+                start_date=start_date,
+                end_date=end_date,
+                output_file=str(args.output),
+                limit=args.limit
+            )
+            results = await scraper.run()
+            logger.info(f"Successfully scraped {results['shoes_found']} shoes")
+            logger.info(f"Results saved to: {args.output}")
             
         elif args.type == 'tunnel-fits':
             from scrapers.tunnel_fit_scraper import TunnelFitScraper
@@ -159,4 +169,4 @@ if __name__ == '__main__':
         level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
-    sys.exit(main())
+    sys.exit(asyncio.run(main()))
