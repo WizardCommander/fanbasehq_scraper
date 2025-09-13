@@ -261,7 +261,7 @@ class ShoeCSVFormatter:
             "model": model,
             "color_description": color_description,
             "release_date": "",  # KixStats doesn't provide release dates
-            "image_url": "",  # No images in KixStats data
+            "image_url": game_shoe.image_url,  # Now extracted from KixStats
             "image_data": "",
             "price": "",  # KixStats doesn't provide pricing
             "shop_links": "[]",
@@ -292,6 +292,7 @@ class ShoeCSVFormatter:
         """Parse shoe name into brand, model, and color components"""
         # Examples:
         # "Nike Kobe 6 Sail All-Star" -> ("Nike", "Kobe 6", "Sail All-Star")
+        # "Nike Kobe 5 Protro Indiana Fever" -> ("Nike", "Kobe 5 Protro", "Indiana Fever")
         # "Nike Kobe V" -> ("Nike", "Kobe V", "")
 
         parts = shoe_name.split()
@@ -301,26 +302,29 @@ class ShoeCSVFormatter:
         # First part is usually brand
         brand = parts[0]
 
-        # Look for common model patterns
+        # Look for common model patterns, especially Kobe shoes
         if len(parts) >= 3 and parts[1] == "Kobe":
-            if parts[2] in ["V", "6", "5"]:
+            # Handle numeric versions (5, 6, 8, etc.) and Roman numerals (V, VI, VIII, etc.)
+            if parts[2] in ["V", "VI", "VIII", "5", "6", "8", "9", "10", "11"]:
                 model = f"{parts[1]} {parts[2]}"
-                if len(parts) > 3:
-                    # Check for "Protro" after the number
-                    if len(parts) > 3 and parts[3] == "Protro":
-                        model = f"{model} Protro"
-                        color_description = (
-                            " ".join(parts[4:]) if len(parts) > 4 else ""
-                        )
-                    else:
-                        color_description = " ".join(parts[3:])
+                remaining_parts = parts[3:]
+
+                # Check for "Protro" after the number/numeral
+                if remaining_parts and remaining_parts[0] == "Protro":
+                    model = f"{model} Protro"
+                    color_description = (
+                        " ".join(remaining_parts[1:])
+                        if len(remaining_parts) > 1
+                        else ""
+                    )
                 else:
-                    color_description = ""
+                    color_description = " ".join(remaining_parts)
             else:
+                # Non-standard Kobe model naming
                 model = parts[1]
                 color_description = " ".join(parts[2:])
         else:
-            # Fallback: second word is model, rest is color
+            # Non-Kobe shoes or different brand patterns
             model = parts[1] if len(parts) > 1 else ""
             color_description = " ".join(parts[2:]) if len(parts) > 2 else ""
 

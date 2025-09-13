@@ -28,6 +28,7 @@ class GameShoeData:
     steals: int
     blocks: int
     player_name: str = ""
+    image_url: str = ""
 
 
 class KixStatsService:
@@ -149,6 +150,43 @@ class KixStatsService:
             if shoe_url and not shoe_url.startswith("http"):
                 shoe_url = f"{self.base_url}{shoe_url}"
 
+            # Extract shoe images - both product image and game photo
+            image_urls = []
+
+            # 1. Get shoe product image from column 1 (kickstats links)
+            images_cell = cells[1]
+            kickstats_links = images_cell.find_all("a", href=lambda href: href and "kickstats" in href)
+            for link in kickstats_links:
+                img_tag = link.find("img")
+                if img_tag:
+                    img_src = img_tag.get("src", "")
+                    # Only get images from /img/kicks/ path, not jerseys
+                    if img_src and "/img/kicks/" in img_src:
+                        if img_src.startswith("/"):
+                            image_urls.append(f"{self.base_url}{img_src}")
+                        else:
+                            image_urls.append(img_src)
+                        break  # Use the first shoe product image
+
+            # 2. Get game photo from column 3 (4th column) if available
+            if len(cells) > 3:
+                game_photo_cell = cells[3]  # Column 3 = 4th column (0-indexed)
+                game_photo_links = game_photo_cell.find_all("a", href=lambda href: href and "/img/games/" in str(href))
+                for link in game_photo_links:
+                    img_tag = link.find("img")
+                    if img_tag:
+                        img_src = img_tag.get("src", "")
+                        if img_src and "/img/games/" in img_src:
+                            if img_src.startswith("/"):
+                                image_urls.append(f"{self.base_url}{img_src}")
+                            else:
+                                image_urls.append(img_src)
+                            break  # Use the first game photo
+
+            # Format as JSON array string or empty string if no images
+            import json
+            image_url = json.dumps(image_urls) if image_urls else ""
+
             # Parse stats (columns 5-10: Min, Pts, Reb, Ast, Stl, Blk)
             def parse_stat(cell) -> int:
                 span = cell.find("span")
@@ -178,6 +216,7 @@ class KixStatsService:
                 steals=steals,
                 blocks=blocks,
                 player_name=player_name,
+                image_url=image_url,
             )
 
         except Exception as e:
