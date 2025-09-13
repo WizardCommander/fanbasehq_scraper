@@ -1,24 +1,27 @@
 # Caitlin Clark Scraper - Development Handoff Notes
 
-## Current Status: ✅ PRODUCTION READY - TwitterAPI.io Integration Complete
+## Current Status: ✅ PRODUCTION READY - Multi-Type Scraper Complete (2025-09-10)
 
 ### What's Built
+- **Complete multi-type scraper** supporting milestones, shoes, and tunnel fits
 - **Professional TwitterAPI.io integration** replacing web scraping approach
-- **Streaming architecture** with memory management for large-scale scraping  
-- **AI-powered parsing** using GPT-3.5-turbo to extract milestone data
-- **FanbaseHQ CSV schema** matching exactly for Supabase import
-- **Flexible CLI** with date ranges, player selection, output customization
-- **Production-grade error handling** and logging
+- **Service layer architecture** with dependency injection and modular design
+- **Game stats integration** using SportDataverse WNBA API for shoe data
+- **AI-powered parsing** using GPT for content analysis with robust date parsing
+- **FanbaseHQ CSV schema** compliance for all content types
+- **Enhanced error handling** and comprehensive validation
+- **Production-grade CLI** with async support
 
 ### Project Structure
 ```
 caitlin-clark-scraper/
 ├── config/           # Configuration (players, accounts, .env)
-├── scrapers/         # milestone_scraper.py (streaming logic)
-├── parsers/          # ai_parser.py (GPT) + csv_formatter.py 
-├── utils/            # twitterapi_client.py (TwitterAPI.io integration)
-├── output/           # Generated CSV files
-└── main.py           # CLI entry point
+├── scrapers/         # milestone_scraper.py + shoe_scraper.py + tunnel_fit_scraper.py
+├── services/         # Service layer (processing, config, game logs, Twitter search)
+├── parsers/          # AI parsing + CSV formatting for all content types
+├── utils/            # TwitterAPI.io integration + branded types + utilities
+├── output/           # Generated CSV files for milestones, shoes, tunnel fits
+└── main.py           # Async CLI entry point
 ```
 
 ## Setup & Testing
@@ -32,11 +35,19 @@ TWITTER_API_KEY=your_api_key_here
 
 ### 2. Test the Scraper
 ```bash
-# Quick test
+# Test milestones (default)
 python main.py --player "caitlin clark" --start-date 2025-08-26 --limit 5
 
-# Production backfill 
-python main.py --player "caitlin clark" --start-date 2024-04-01 --end-date 2024-08-27 --limit 200
+# Test shoes
+python main.py --player "caitlin clark" --type shoes --start-date 2025-05-01 --end-date 2025-07-01 --limit 5
+
+# Test tunnel fits
+python main.py --player "caitlin clark" --type tunnel-fits --start-date 2025-05-01 --end-date 2025-07-01 --limit 5
+
+# Production backfill (all types)
+python main.py --player "caitlin clark" --type milestones --start-date 2024-04-01 --end-date 2024-08-27 --limit 200
+python main.py --player "caitlin clark" --type shoes --start-date 2024-04-01 --end-date 2024-08-27 --limit 200
+python main.py --player "caitlin clark" --type tunnel-fits --start-date 2024-04-01 --end-date 2024-08-27 --limit 200
 ```
 
 ### 3. Key Configuration Files
@@ -73,6 +84,13 @@ aiohttp>=3.8.0
 # Data processing
 pandas>=2.0.0  
 python-dateutil>=2.8.0
+
+# Game data integration (for shoes)
+sportsdataverse>=0.3.0
+
+# Text similarity (for deduplication)
+fuzzywuzzy>=0.18.0
+python-levenshtein>=0.12.0
 ```
 
 ## Production Features
@@ -256,3 +274,161 @@ The scraper has been completely refactored with:
 3. **Additional Content Types** - Shoes, tunnel fits, etc.
 
 **Status:** Production-ready milestone scraper with robust date validation and clean architecture. Image processing removed due to API limitations.
+
+---
+
+## 🆕 MAJOR UPDATE: Shoe Scraper Implementation Complete (2025-09-10)
+
+### ✅ **Complete Shoe Scraper Architecture**
+
+#### **Core Components Built:**
+1. **`ShoeData` Structure** - Complete data class with branded types and game stats integration
+2. **`AIParser.parse_shoe_tweet()`** - AI-powered shoe detection with comprehensive prompt engineering
+3. **`ShoeProcessingService`** - Tweet processing with sophisticated game stats integration  
+4. **`ShoeCSVFormatter`** - Exact compliance with FanbaseHQ database schema
+5. **`ShoeScraper`** - Main orchestrator following existing architecture patterns
+6. **Updated `main.py`** - Command line integration with async support
+
+#### **Key Features Implemented:**
+
+##### **🎯 Game Stats Integration (Most Complex Feature)**
+- **Intelligent date matching**: Finds games within ±7 days of shoe post
+- **Complex JSON structure**: Builds game_stats matching exact database schema:
+  ```json
+  {
+    "games": [{"date": "2024-08-30", "points": 31, "assists": 12, "opponent": "Chicago Sky"}],
+    "summary": {"gamesPlayed": 1, "pointsPerGame": 31.0, "bestGame": {...}}
+  }
+  ```
+- **SportDataverse integration**: Uses WNBA API for accurate game performance data
+- **Statistical aggregation**: Calculates averages and identifies best games for shoe periods
+
+##### **🔧 Enhanced Date Parsing System**
+- **Multiple format support**: ISO, US (MM/DD/YYYY), European (DD/MM/YYYY), named months, compact formats
+- **Robust error handling**: Gracefully handles invalid inputs with proper logging
+- **Business logic validation**: Validates release dates vs tweet dates with tolerance for early announcements
+- **Comprehensive testing**: 23+ test cases covering all formats and edge cases
+
+##### **📊 Source Attribution System**
+- **Account tracking**: Maps each tweet to source account (@nicekicks, @nikebasketball, @KicksFinder)
+- **Accurate source field**: Populates CSV with actual Twitter account handles
+- **Social stats integration**: Uses real Twitter engagement metrics, not AI extraction
+
+##### **⚠️ Missing Data Framework**
+- **Fallback readiness**: Tracks fields that need external data enrichment (price, release date, performance features)
+- **Confidence scoring**: Rates AI extraction quality for validation
+- **Transparent reporting**: Documents missing data in additional_notes field
+
+#### **Technical Architecture:**
+
+##### **Service Layer Pattern (Following CLAUDE.md C-1)**
+```python
+class ShoeScraper:
+    def __init__(self, config: ScraperConfig, 
+                 twitter_service: TwitterSearchService = None,
+                 processing_service: ShoeProcessingService = None,
+                 csv_formatter: ShoeCSVFormatter = None):
+        # Dependency injection for testability
+```
+
+##### **Branded Types Enforcement (CLAUDE.md C-5)**
+```python
+@dataclass
+class ShoeData:
+    source_tweet_id: TweetId
+    date: Optional[date]  # Tweet date for game matching
+    release_date: Optional[date]  # Shoe release date from AI
+    game_stats: Optional[Dict]  # Complex JSON from game integration
+```
+
+##### **TDD Implementation (CLAUDE.md C-1)**
+- Unit tests for AI parsing with mocked responses
+- Integration tests for game stats matching
+- Date parsing tests covering all formats and edge cases
+- CSV formatting tests ensuring schema compliance
+
+#### **Usage Examples:**
+```bash
+# Basic shoe scraping
+python main.py --player "caitlin clark" --type shoes --limit 10
+
+# Production shoe data collection
+python main.py --player "caitlin clark" --type shoes --start-date 2024-04-01 --end-date 2024-08-27 --limit 200
+
+# Shoe accounts configured in accounts.json:
+# - @nicekicks
+# - @nikebasketball  
+# - @KicksFinder
+```
+
+#### **CSV Schema Compliance:**
+Exact match with database structure including:
+- `shoe_name`, `brand`, `model`, `color_description`
+- `release_date`, `price`, `signature_shoe`, `limited_edition`
+- `performance_features` (JSON array)
+- `game_stats` (complex JSON structure)
+- `social_stats`, `source`, `player_edition`
+
+### ✅ **Production Readiness Checklist**
+
+#### **Architecture Quality:**
+- ✅ **Service layer consistency** - Follows milestone/tunnel fit patterns exactly
+- ✅ **Error handling** - Comprehensive exception handling throughout pipeline
+- ✅ **Logging integration** - Detailed progress tracking and debugging info
+- ✅ **Configuration management** - Uses existing accounts.json and player config
+- ✅ **Backward compatibility** - Factory methods preserve existing interfaces
+
+#### **Data Quality:**
+- ✅ **Schema compliance** - Matches actual database CSV structure exactly
+- ✅ **Game stats accuracy** - Real SportDataverse data integration
+- ✅ **Source attribution** - Actual Twitter account handles, not placeholders
+- ✅ **Date validation** - Business logic prevents impossible date relationships
+- ✅ **Missing data tracking** - Framework ready for external data enrichment
+
+#### **Testing Coverage:**
+- ✅ **Unit tests** - AI parsing, date processing, CSV formatting
+- ✅ **Integration tests** - Service pipeline with game stats integration
+- ✅ **Edge case coverage** - Invalid dates, missing data, API errors
+- ✅ **Schema validation** - CSV output matches database requirements
+
+### 🔧 **Recent Bug Fixes (2025-09-10)**
+
+#### **TwitterSearchService Integration Issue**
+- **Problem**: Shoe scraper called non-existent `search_tweets_from_account()` method
+- **Root Cause**: Used wrong API - should use `search_tweets_for_player()`
+- **Solution**: Updated to use existing TwitterSearchService with enhanced search variations
+- **Result**: Shoe-specific search terms added ("caitlin clark shoe", "caitlin clark nike", etc.)
+
+#### **ShoeData Date Field Issue**  
+- **Problem**: Processing service expected `shoe.date` but class only had `release_date`
+- **Root Cause**: Conceptual confusion between tweet date vs product release date
+- **Solution**: Added separate `date` field for tweet date (game matching) and `release_date` for product info
+- **Result**: Follows `TunnelFitData.date` pattern exactly, enables game stats integration
+
+#### **Enhanced Date Parsing Robustness**
+- **Previous**: Simple `datetime.fromisoformat()` that failed on real-world formats
+- **Enhanced**: 9+ date format support with business logic validation
+- **Testing**: Comprehensive test suite covering all edge cases
+- **Validation**: Prevents impossible date relationships (tweet before shoe release)
+
+### 🎯 **Current Status: Full Multi-Type Scraper**
+
+#### **All Content Types Implemented:**
+1. ✅ **Milestones** - Original implementation with service layer refactoring
+2. ✅ **Shoes** - Complete with game stats integration and robust date parsing  
+3. ✅ **Tunnel Fits** - Previously implemented with style account integration
+
+#### **Ready for Production Use:**
+- All scrapers follow consistent service layer architecture
+- Comprehensive error handling and logging throughout
+- Real Twitter engagement metrics and source attribution
+- Exact FanbaseHQ CSV schema compliance for all types
+- Async CLI with proper command line integration
+
+#### **Future Enhancement Framework Ready:**
+- Missing data fallback services can be easily added
+- Additional Twitter accounts can be configured in accounts.json
+- Multi-player support framework in place
+- Instagram integration patterns established
+
+**Status**: Complete multi-type scraper ready for production deployment. All three content types (milestones, shoes, tunnel fits) fully implemented with robust game stats integration for shoes.

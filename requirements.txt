@@ -2,8 +2,9 @@
 openai>=1.0.0
 python-dotenv>=1.0.0
 
-# TwitterAPI.io HTTP client
+# HTTP client and HTML parsing
 aiohttp>=3.8.0
+beautifulsoup4>=4.12.0
 
 # Data processing and CSV handling
 pandas>=2.0.0

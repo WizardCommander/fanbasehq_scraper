@@ -1,5 +1,5 @@
 """
-Shoe scraper for Caitlin Clark WNBA data - Following Existing Architecture
+Shoe scraper for Caitlin Clark WNBA data - KixStats Integration
 """
 
 import json
@@ -8,24 +8,21 @@ from datetime import date
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from config.settings import CONFIG_DIR, PLAYERS_FILE, TWITTER_ACCOUNTS_FILE
+from config.settings import CONFIG_DIR, PLAYERS_FILE
 from services.scraper_config import ScraperConfig
-from services.twitter_search_service import TwitterSearchService
-from services.shoe_processing_service import ShoeProcessingService
-from parsers.ai_parser import AIParser
+from services.kixstats_service import KixStatsService
 from parsers.shoe_csv_formatter import ShoeCSVFormatter
 
 logger = logging.getLogger(__name__)
 
 
 class ShoeScraper:
-    """Main scraper orchestrator for shoes - coordinates services to perform shoe scraping"""
+    """Main scraper orchestrator for shoes - uses KixStats for game-by-game shoe data"""
 
     def __init__(
         self,
         config: ScraperConfig,
-        twitter_service: Optional[TwitterSearchService] = None,
-        processing_service: Optional[ShoeProcessingService] = None,
+        kixstats_service: Optional[KixStatsService] = None,
         csv_formatter: Optional[ShoeCSVFormatter] = None,
     ):
         # Validate and store configuration
@@ -33,8 +30,7 @@ class ShoeScraper:
         self.config = config
 
         # Initialize services with dependency injection
-        self.twitter_service = twitter_service or TwitterSearchService()
-        self.processing_service = processing_service or ShoeProcessingService()
+        self.kixstats_service = kixstats_service or KixStatsService()
         self.csv_formatter = csv_formatter or ShoeCSVFormatter(config.output_file)
 
     @classmethod
@@ -48,11 +44,10 @@ class ShoeScraper:
     ) -> "ShoeScraper":
         """Factory method for backward compatibility with legacy constructor"""
 
-        # Load configurations the same way as other scrapers
+        # Load player configuration
         player_config = cls._load_player_config(player.lower())
-        accounts_config = cls._load_accounts_config()
 
-        # Create config object - use shoe_accounts for target_accounts
+        # Create config object - KixStats doesn't need Twitter accounts
         config = ScraperConfig(
             player=player.lower(),
             player_display_name=player.title(),
@@ -61,9 +56,6 @@ class ShoeScraper:
             output_file=output_file,
             limit=limit,
             player_variations=player_config.get("variations", []),
-            target_accounts=accounts_config.get("twitter_accounts", {}).get(
-                "shoe_accounts", []
-            ),
         )
 
         return cls(config)
@@ -79,126 +71,67 @@ class ShoeScraper:
 
         return players[player]
 
-    @staticmethod
-    def _load_accounts_config() -> Dict:
-        """Load accounts configuration"""
-        with open(TWITTER_ACCOUNTS_FILE, "r") as f:
-            return json.load(f)
-
     async def run(self) -> Dict:
         """
-        Run the complete shoe scraping pipeline
+        Run the complete shoe scraping pipeline using KixStats
 
         Returns:
             Dict with scraping results and statistics
         """
-        logger.info(f"Starting shoe scraping for {self.config.player_display_name}")
+        logger.info(
+            f"Starting KixStats shoe scraping for {self.config.player_display_name}"
+        )
         logger.info(f"Date range: {self.config.start_date} to {self.config.end_date}")
-        logger.info(f"Target accounts: {self.config.target_accounts}")
-        logger.info(f"Player variations: {self.config.player_variations}")
-        logger.info(f"Limit: {self.config.limit} tweets per account")
 
         try:
-            # Step 1: Search and scrape tweets from shoe accounts
-            scraped_tweets, tweet_sources = await self._scrape_tweets_with_sources()
-            logger.info(f"Scraped {len(scraped_tweets)} tweets from shoe accounts")
+            # Step 1: Get player ID for KixStats
+            player_id = KixStatsService.get_player_id_from_name(self.config.player)
+            logger.info(f"Using KixStats player ID: {player_id}")
 
-            if not scraped_tweets:
-                logger.warning("No tweets found - checking account configuration")
-                return {
-                    "shoes_found": 0,
-                    "tweets_processed": 0,
-                    "accounts_searched": len(self.config.target_accounts),
-                    "status": "no_tweets_found"
-                }
-
-            # Step 2: Process tweets to extract shoes with game stats integration
-            processing_result = await self.processing_service.process_tweets_to_shoes(
-                scraped_tweets,
-                self.config.player_display_name,
-                self.config.start_date,
-                self.config.end_date,
+            # Step 2: Scrape game shoe data from KixStats
+            game_shoes = await self.kixstats_service.scrape_player_games(
+                player_id=player_id, player_name=self.config.player_display_name
             )
 
-            logger.info(f"Found {processing_result.shoes_found} shoes from {processing_result.tweets_processed} tweets")
+            logger.info(f"Scraped {len(game_shoes)} games from KixStats")
 
-            if not processing_result.shoes:
-                logger.warning("No shoes found in tweets")
+            if not game_shoes:
+                logger.warning("No game data found from KixStats")
                 return {
                     "shoes_found": 0,
-                    "tweets_processed": processing_result.tweets_processed,
-                    "accounts_searched": len(self.config.target_accounts),
-                    "status": "no_shoes_found"
+                    "games_processed": 0,
+                    "status": "no_games_found",
                 }
 
-            # Step 3: Format and save to CSV with source attribution
-            csv_count = self.csv_formatter.format_shoes_to_csv(
-                processing_result.shoes, tweet_sources
-            )
+            # Step 3: Filter by date range
+            filtered_games = [
+                game
+                for game in game_shoes
+                if self.config.start_date <= game.game_date <= self.config.end_date
+            ]
 
-            logger.info(f"Successfully saved {csv_count} shoes to {self.config.output_file}")
+            logger.info(f"Filtered to {len(filtered_games)} games in date range")
+
+            # Step 4: Format and save to CSV
+            csv_count = self.csv_formatter.format_game_shoes_to_csv(filtered_games)
+
+            logger.info(
+                f"Successfully saved {csv_count} game shoes to {self.config.output_file}"
+            )
 
             return {
-                "shoes_found": processing_result.shoes_found,
-                "tweets_processed": processing_result.tweets_processed,
-                "accounts_searched": len(self.config.target_accounts),
+                "shoes_found": csv_count,
+                "games_processed": len(game_shoes),
+                "games_in_range": len(filtered_games),
                 "csv_records_written": csv_count,
-                "status": "success"
+                "status": "success",
             }
 
         except Exception as e:
-            logger.error(f"Error during shoe scraping: {e}")
+            logger.error(f"Error during KixStats shoe scraping: {e}")
             return {
                 "shoes_found": 0,
-                "tweets_processed": 0,
-                "accounts_searched": len(self.config.target_accounts),
+                "games_processed": 0,
                 "error": str(e),
-                "status": "error"
+                "status": "error",
             }
-
-    async def _scrape_tweets_with_sources(self):
-        """
-        Scrape tweets while tracking which account each tweet came from
-        
-        Returns:
-            Tuple of (scraped_tweets, tweet_sources_dict)
-        """
-        all_tweets = []
-        tweet_sources = {}  # tweet_id -> source_account mapping
-
-        # Create search variations that include shoe-specific terms
-        shoe_variations = []
-        for variation in self.config.player_variations:
-            # Add base player variation
-            shoe_variations.append(variation)
-            # Add shoe-specific combinations
-            shoe_variations.extend([
-                f"{variation} shoe",
-                f"{variation} sneaker", 
-                f"{variation} nike",
-                f"{variation} kobe",
-            ])
-
-        try:
-            # Use the existing TwitterSearchService API
-            search_results = await self.twitter_service.search_tweets_for_player(
-                accounts=self.config.target_accounts,
-                variations=shoe_variations,
-                start_date=self.config.start_date,
-                end_date=self.config.end_date,
-                limit=self.config.limit
-            )
-
-            # Extract tweets and build source mapping
-            for result in search_results:
-                for tweet in result.tweets:
-                    all_tweets.append(tweet)
-                    # Map tweet_id to the account it came from
-                    tweet_sources[tweet.id] = result.account
-
-            logger.info(f"Found {len(all_tweets)} total tweets from {len(search_results)} successful searches")
-
-        except Exception as e:
-            logger.error(f"Error during Twitter search: {e}")
-
-        return all_tweets, tweet_sources
