@@ -6,6 +6,7 @@ import csv
 import json
 import logging
 import uuid
+import urllib.parse
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Optional
@@ -264,7 +265,9 @@ class ShoeCSVFormatter:
             "image_url": game_shoe.image_url,  # Now extracted from KixStats
             "image_data": "",
             "price": "",  # KixStats doesn't provide pricing
-            "shop_links": "[]",
+            "shop_links": json.dumps(
+                [self._build_goat_search_url(game_shoe.shoe_name)]
+            ),
             "signature_shoe": is_signature,
             "limited_edition": False,  # Could enhance detection
             "performance_features": "[]",  # Could enhance with shoe database
@@ -436,3 +439,8 @@ class ShoeCSVFormatter:
                 notes.append(f"Games integrated: {games_played}")
 
         return " | ".join(notes)
+
+    def _build_goat_search_url(self, shoe_name: str) -> str:
+        """Build GOAT search URL from shoe name"""
+        query = urllib.parse.quote(shoe_name)
+        return f"https://www.goat.com/search?query={query}"

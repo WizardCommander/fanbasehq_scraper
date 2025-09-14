@@ -149,7 +149,7 @@ Examples:
                 output_file=str(args.output),
                 limit=args.limit
             )
-            results = scraper.run()
+            results = await scraper.run()
             logger.info(f"Successfully scraped {results['tunnel_fits_found']} tunnel fits")
             logger.info(f"Results saved to: {args.output}")
             

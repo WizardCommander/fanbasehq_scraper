@@ -13,6 +13,7 @@ from config.settings import CONFIG_DIR, PLAYERS_FILE, TWITTER_ACCOUNTS_FILE
 from services.scraper_config import ScraperConfig
 from services.twitter_search_service import TwitterSearchService
 from services.tunnel_fit_processing_service import TunnelFitProcessingService
+from services.tunnel_fit_aggregation_service import TunnelFitAggregationService
 from parsers.ai_parser import AIParser
 from parsers.tunnel_fit_csv_formatter import TunnelFitCSVFormatter
 
@@ -28,6 +29,7 @@ class TunnelFitScraper:
         config: ScraperConfig,
         twitter_service: Optional[TwitterSearchService] = None,
         processing_service: Optional[TunnelFitProcessingService] = None,
+        aggregation_service: Optional[TunnelFitAggregationService] = None,
         csv_formatter: Optional[TunnelFitCSVFormatter] = None,
     ):
         # Validate and store configuration
@@ -37,6 +39,7 @@ class TunnelFitScraper:
         # Initialize services with dependency injection
         self.twitter_service = twitter_service or TwitterSearchService()
         self.processing_service = processing_service or TunnelFitProcessingService()
+        self.aggregation_service = aggregation_service or TunnelFitAggregationService()
         self.csv_formatter = csv_formatter or TunnelFitCSVFormatter(config.output_file)
 
     @classmethod
@@ -145,13 +148,13 @@ class TunnelFitScraper:
         if tunnel_fit_batches:
             all_tunnel_fits = []
             all_source_tweets = []
-            
+
             # Create a lookup of all tweets by ID
             tweet_lookup = {}
             for tunnel_fits, tweets in tunnel_fit_batches:
                 for tweet in tweets:
                     tweet_lookup[tweet.id] = tweet
-            
+
             # Collect tunnel fits and their corresponding source tweets
             for tunnel_fits, tweets in tunnel_fit_batches:
                 for tunnel_fit in tunnel_fits:
@@ -160,18 +163,46 @@ class TunnelFitScraper:
                         all_tunnel_fits.append(tunnel_fit)
                         all_source_tweets.append(source_tweet)
                     else:
-                        logger.warning(f"Could not find source tweet for tunnel fit: {tunnel_fit.event}")
+                        logger.warning(
+                            f"Could not find source tweet for tunnel fit: {tunnel_fit.event}"
+                        )
+
+            # Aggregate related outfit pieces into complete outfits
+            logger.info(
+                f"Aggregating {len(all_tunnel_fits)} tunnel fit pieces into complete outfits"
+            )
+            aggregation_result = self.aggregation_service.aggregate_outfit_pieces(
+                all_tunnel_fits
+            )
+
+            # Update tunnel fits with aggregated results
+            all_tunnel_fits = aggregation_result.tunnel_fits
+
+            # Rebuild source tweets mapping for aggregated tunnel fits
+            aggregated_source_tweets = []
+            for tunnel_fit in all_tunnel_fits:
+                source_tweet = tweet_lookup.get(tunnel_fit.source_tweet_id.value)
+                if source_tweet:
+                    aggregated_source_tweets.append(source_tweet)
+                else:
+                    logger.warning(
+                        f"Could not find source tweet for aggregated tunnel fit: {tunnel_fit.event}"
+                    )
+
+            logger.info(
+                f"Aggregation complete: {aggregation_result.original_count} pieces → "
+                f"{aggregation_result.aggregated_count} complete outfits "
+                f"({aggregation_result.pieces_combined} pieces combined)"
+            )
 
             # Write results to CSV
             await self.csv_formatter.write_tunnel_fits_to_csv(
                 tunnel_fits=all_tunnel_fits,
-                tweets=all_source_tweets,
+                tweets=aggregated_source_tweets,
                 player_name=self.config.player_display_name,
             )
 
-            logger.info(
-                f"Scraping complete: {len(all_tunnel_fits)} tunnel fits found"
-            )
+            logger.info(f"Scraping complete: {len(all_tunnel_fits)} tunnel fits found")
 
             return self._create_results_summary(
                 len(all_tunnel_fits),
@@ -206,14 +237,14 @@ class TunnelFitScraper:
             "tunnel_fits": tunnel_fits,
         }
 
-    def run(self) -> Dict:
+    async def run(self) -> Dict:
         """
-        Run the scraper synchronously
+        Run the scraper asynchronously
 
         Returns:
             Scraping results dictionary
         """
-        return asyncio.run(self.scrape_tunnel_fits())
+        return await self.scrape_tunnel_fits()
 
 
 # Test functions removed for production - see development branch for testing utilities
