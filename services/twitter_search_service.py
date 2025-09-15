@@ -5,7 +5,7 @@ Handles all Twitter API interactions for milestone scraping
 
 import logging
 from datetime import date
-from typing import List, Dict
+from typing import List
 from dataclasses import dataclass
 
 from utils.twitterapi_client import TwitterAPIClient, ScrapedTweet

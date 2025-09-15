@@ -13,6 +13,7 @@ from typing import List, Dict, Optional
 
 from parsers.ai_parser import ShoeData
 from services.kixstats_service import GameShoeData
+from services.kickscrew_service import KicksCrewService
 from config.settings import CSV_ENCODING
 
 logger = logging.getLogger(__name__)
@@ -138,7 +139,7 @@ class ShoeCSVFormatter:
         )
 
         row = {
-            "id": len(str(submission_id)),  # Simple numeric ID for now
+            "id": submission_id,
             "player_name": shoe.player_name,
             "shoe_name": shoe.shoe_name,
             "brand": shoe.brand,
@@ -172,9 +173,10 @@ class ShoeCSVFormatter:
 
         return row
 
-    def format_game_shoes_to_csv(self, game_shoes: List[GameShoeData]) -> int:
+    async def format_game_shoes_to_csv(self, game_shoes: List[GameShoeData]) -> int:
         """
         Format KixStats game shoe data to CSV matching exact FanbaseHQ schema
+        Enhanced with KicksCrew data for release dates and pricing
 
         Args:
             game_shoes: List of GameShoeData objects from KixStats
@@ -191,13 +193,19 @@ class ShoeCSVFormatter:
         )
 
         try:
-            with open(self.output_file, "w", newline="", encoding=CSV_ENCODING) as f:
-                writer = csv.DictWriter(f, fieldnames=self.CSV_COLUMNS)
-                writer.writeheader()
+            # Use KicksCrewService to enhance data
+            async with KicksCrewService() as kickscrew_service:
+                with open(
+                    self.output_file, "w", newline="", encoding=CSV_ENCODING
+                ) as f:
+                    writer = csv.DictWriter(f, fieldnames=self.CSV_COLUMNS)
+                    writer.writeheader()
 
-                for game_shoe in game_shoes:
-                    row = self._format_game_shoe_to_row(game_shoe)
-                    writer.writerow(row)
+                    for game_shoe in game_shoes:
+                        row = await self._format_game_shoe_to_row_enhanced(
+                            game_shoe, kickscrew_service
+                        )
+                        writer.writerow(row)
 
             logger.info(
                 f"Successfully wrote {len(game_shoes)} game shoes to {self.output_file}"
@@ -208,16 +216,125 @@ class ShoeCSVFormatter:
             logger.error(f"Error writing game shoes to CSV: {e}")
             return 0
 
-    def _format_game_shoe_to_row(self, game_shoe: GameShoeData) -> Dict:
-        """Format a single GameShoeData object to CSV row dictionary"""
+    async def _format_game_shoe_to_row_enhanced(
+        self, game_shoe: GameShoeData, kickscrew_service: KicksCrewService
+    ) -> Dict:
+        """Format a single GameShoeData object to CSV row with KicksCrew enhancement"""
 
         now = datetime.now().isoformat()
         submission_id = str(uuid.uuid4())
 
-        # Extract brand and model from shoe_name (e.g., "Nike Kobe 6 Sail All-Star")
+        # Extract brand and model from shoe_name
         brand, model, color_description = self._parse_shoe_name(game_shoe.shoe_name)
 
-        # Build game stats JSON with actual performance data
+        # Get enhanced data from KicksCrew
+        kickscrew_data = await self._get_kickscrew_enhanced_data(
+            game_shoe, kickscrew_service
+        )
+
+        # Try to get KicksCrew URL even if page data failed
+        kickscrew_url = None
+        if not kickscrew_data and game_shoe.shoe_url:
+            try:
+                kickscrew_url = await kickscrew_service._extract_kickscrew_url_from_kixstats(
+                    game_shoe.shoe_url
+                )
+            except Exception as e:
+                logger.debug(f"Could not extract KicksCrew URL from {game_shoe.shoe_url}: {e}")
+
+        # Build enhanced pricing and links
+        release_date, price, shop_links = self._build_enhanced_pricing_data(
+            kickscrew_data, game_shoe.shoe_name, kickscrew_url
+        )
+
+        # Build game stats JSON
+        game_stats_json = self._build_game_stats_json(game_shoe)
+
+        # Detect shoe characteristics
+        is_signature = self._detect_signature_shoe(game_shoe.shoe_name)
+        is_player_edition = self._detect_player_edition_from_name(game_shoe.shoe_name)
+
+        row = {
+            "id": submission_id,
+            "player_name": game_shoe.player_name,
+            "shoe_name": game_shoe.shoe_name,
+            "brand": brand,
+            "model": model,
+            "color_description": color_description,
+            "release_date": release_date,
+            "image_url": game_shoe.image_url,
+            "image_data": "",
+            "price": price,
+            "shop_links": shop_links,
+            "signature_shoe": is_signature,
+            "limited_edition": False,  # Could enhance detection
+            "performance_features": "[]",  # Could enhance with shoe database
+            "description": f"Worn in game on {game_shoe.game_date.isoformat()}",
+            "social_stats": "{}",  # No social data from KixStats
+            "source": "KixStats",
+            "source_link": game_shoe.shoe_url,
+            "photographer": "",
+            "photographer_link": "",
+            "additional_notes": self._build_game_additional_notes_enhanced(
+                game_shoe, kickscrew_data
+            ),
+            "status": "approved",  # Default status
+            "submitter_name": "kixstats_scraper",
+            "submitter_email": "",
+            "user_id": submission_id,
+            "original_submission_id": submission_id,
+            "created_at": now,
+            "updated_at": now,
+            "game_stats": game_stats_json,
+            "player_edition": is_player_edition,
+        }
+
+        return row
+
+    async def _get_kickscrew_enhanced_data(
+        self, game_shoe: GameShoeData, kickscrew_service: KicksCrewService
+    ):
+        """Get KicksCrew data for enhanced information with error handling"""
+        if not game_shoe.shoe_url:
+            return None
+
+        try:
+            return await kickscrew_service.get_shoe_details_from_kixstats_url(
+                game_shoe.shoe_url
+            )
+        except Exception as e:
+            logger.debug(f"Could not get KicksCrew data for {game_shoe.shoe_url}: {e}")
+            return None
+
+    def _build_enhanced_pricing_data(self, kickscrew_data, shoe_name: str, kickscrew_url: str = None) -> tuple:
+        """Build release date, price, and shop links with KicksCrew enhancement"""
+        release_date = ""
+        price = ""
+        shop_links = "[]"
+
+        if kickscrew_data:
+            # Use KicksCrew release date
+            if kickscrew_data.release_date:
+                release_date = kickscrew_data.release_date.isoformat()
+
+            # Use KicksCrew retail price
+            if kickscrew_data.retail_price:
+                price = kickscrew_data.retail_price
+
+            # Use direct KicksCrew purchase link
+            if kickscrew_data.kickscrew_url:
+                shop_links = json.dumps([kickscrew_data.kickscrew_url])
+        elif kickscrew_url:
+            # We have KicksCrew URL but no page data - still use the URL for shop_links
+            shop_links = json.dumps([kickscrew_url])
+        else:
+            # Fallback to GOAT search link
+            shop_links = json.dumps([self._build_goat_search_url(shoe_name)])
+
+        return release_date, price, shop_links
+
+    def _build_game_stats_json(self, game_shoe: GameShoeData) -> str:
+        """Build game stats JSON with actual performance data"""
         game_stats = {
             "games": [
                 {
@@ -249,47 +366,8 @@ class ShoeCSVFormatter:
                 },
             },
         }
+        return json.dumps(game_stats)
 
-        # Detect if this is a signature/player edition shoe
-        is_signature = self._detect_signature_shoe(game_shoe.shoe_name)
-        is_player_edition = self._detect_player_edition_from_name(game_shoe.shoe_name)
-
-        row = {
-            "id": len(str(submission_id)),  # Simple numeric ID for now
-            "player_name": game_shoe.player_name,
-            "shoe_name": game_shoe.shoe_name,
-            "brand": brand,
-            "model": model,
-            "color_description": color_description,
-            "release_date": "",  # KixStats doesn't provide release dates
-            "image_url": game_shoe.image_url,  # Now extracted from KixStats
-            "image_data": "",
-            "price": "",  # KixStats doesn't provide pricing
-            "shop_links": json.dumps(
-                [self._build_goat_search_url(game_shoe.shoe_name)]
-            ),
-            "signature_shoe": is_signature,
-            "limited_edition": False,  # Could enhance detection
-            "performance_features": "[]",  # Could enhance with shoe database
-            "description": f"Worn in game on {game_shoe.game_date.isoformat()}",
-            "social_stats": "{}",  # No social data from KixStats
-            "source": "KixStats",
-            "source_link": game_shoe.shoe_url,
-            "photographer": "",
-            "photographer_link": "",
-            "additional_notes": self._build_game_additional_notes(game_shoe),
-            "status": "approved",  # Default status
-            "submitter_name": "kixstats_scraper",
-            "submitter_email": "",
-            "user_id": submission_id,
-            "original_submission_id": submission_id,
-            "created_at": now,
-            "updated_at": now,
-            "game_stats": json.dumps(game_stats),
-            "player_edition": is_player_edition,
-        }
-
-        return row
 
     def _parse_shoe_name(self, shoe_name: str) -> tuple:
         """Parse shoe name into brand, model, and color components"""
@@ -360,6 +438,34 @@ class ShoeCSVFormatter:
 
         # Add data source
         notes.append("Source: KixStats game-by-game tracking")
+
+        return " | ".join(notes)
+
+    def _build_game_additional_notes_enhanced(
+        self, game_shoe: GameShoeData, kickscrew_data
+    ) -> str:
+        """Build additional notes field for game shoe data with KicksCrew enhancement"""
+        notes = []
+
+        # Add game performance summary
+        notes.append(f"Game: {game_shoe.game_date.isoformat()}")
+        notes.append(
+            f"Stats: {game_shoe.points}pts, {game_shoe.rebounds}reb, {game_shoe.assists}ast"
+        )
+        notes.append(f"Minutes: {game_shoe.minutes}")
+
+        # Add data source
+        notes.append("Source: KixStats game-by-game tracking")
+
+        # Add KicksCrew enhancement info
+        if kickscrew_data:
+            if kickscrew_data.release_date:
+                notes.append(f"Release: {kickscrew_data.release_date.isoformat()}")
+            if kickscrew_data.retail_price:
+                notes.append(f"Retail: {kickscrew_data.retail_price}")
+            notes.append("Enhanced: KicksCrew data")
+        else:
+            notes.append("Enhanced: Limited data available")
 
         return " | ".join(notes)
 

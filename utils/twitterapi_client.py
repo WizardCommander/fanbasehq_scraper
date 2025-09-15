@@ -7,7 +7,7 @@ import asyncio
 import logging
 import aiohttp
 from datetime import datetime, date
-from typing import List, Dict, Optional, Set
+from typing import List, Dict, Optional
 from dataclasses import dataclass
 
 from config.settings import (
@@ -263,7 +263,6 @@ class TwitterAPIClient:
 
             # Extract media/images
             images = []
-            attachments = tweet_data.get("attachments", {})
             includes = tweet_data.get("includes", {})
             media_list = includes.get("media", [])
 

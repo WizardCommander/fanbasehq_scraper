@@ -8,7 +8,7 @@ import argparse
 import asyncio
 import sys
 import logging
-from datetime import datetime, date
+from datetime import date
 from pathlib import Path
 
 # Add the project root to Python path

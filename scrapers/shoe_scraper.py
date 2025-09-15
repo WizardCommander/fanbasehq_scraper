@@ -5,7 +5,6 @@ Shoe scraper for Caitlin Clark WNBA data - KixStats Integration
 import json
 import logging
 from datetime import date
-from pathlib import Path
 from typing import Dict, List, Optional
 
 from config.settings import CONFIG_DIR, PLAYERS_FILE
@@ -112,8 +111,10 @@ class ShoeScraper:
 
             logger.info(f"Filtered to {len(filtered_games)} games in date range")
 
-            # Step 4: Format and save to CSV
-            csv_count = self.csv_formatter.format_game_shoes_to_csv(filtered_games)
+            # Step 4: Format and save to CSV (enhanced with KicksCrew data)
+            csv_count = await self.csv_formatter.format_game_shoes_to_csv(
+                filtered_games
+            )
 
             logger.info(
                 f"Successfully saved {csv_count} game shoes to {self.config.output_file}"

@@ -270,14 +270,14 @@ async def build_and_save_roster_cache():
 
             # Test the lookup function
             test_players = ["caitlin clark", "kelsey plum", "breanna stewart"]
-            print("\n=== Testing player lookups ===")
+            logger.info("Testing player lookups")
             for player in test_players:
                 team = lookup_player_team(player)
-                print(f"{player.title()}: {team}")
+                logger.info(f"{player.title()}: {team}")
 
-            print(f"\nRoster cache built successfully!")
-            print(f"Cached {len(cache_data.get('teams', {}))} teams")
-            print(f"Cached {len(cache_data.get('players', {}))} player entries")
+            logger.info(f"Roster cache built successfully!")
+            logger.info(f"Cached {len(cache_data.get('teams', {}))} teams")
+            logger.info(f"Cached {len(cache_data.get('players', {}))} player entries")
         else:
             logger.error("Failed to build roster cache")
 

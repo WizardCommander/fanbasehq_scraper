@@ -5,6 +5,7 @@ Web scraping service for extracting game-by-game shoe data from KixStats.com
 
 import logging
 import asyncio
+import json
 from datetime import date, datetime
 from typing import List, Optional
 from dataclasses import dataclass

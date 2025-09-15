@@ -7,14 +7,12 @@ import re
 import logging
 from datetime import datetime, date, timedelta
 from typing import Optional, Tuple
-from dateutil import parser as date_parser
 
 
 from parsers.ai_parser import MilestoneData
 from utils.roster_cache import lookup_player_team
 from utils.player_game_logs import get_player_recent_game
 from services.preseason_schedule_service import validate_preseason_game
-from utils.roster_cache import lookup_player_team
 from config.settings import (
     HIGH_CONFIDENCE_THRESHOLD,
     BOXSCORE_ANALYSIS_CONFIDENCE,
