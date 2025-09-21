@@ -146,8 +146,10 @@ class ShoeCSVFormatter:
             "model": shoe.model,
             "color_description": shoe.color_description,
             "release_date": release_date,
-            "image_url": "",  # Would need image extraction from tweet
-            "image_data": "",  # Would need base64 encoding - fallback service needed
+            "image_url": (
+                tweet.images[0] if tweet.images else ""
+            ),  # TwitterAPI.io doesn't provide images currently
+            "image_data": "",  # Image download requires future implementation (Playwright, Twitter API v2, etc.)
             "price": price,
             "shop_links": "[]",  # Would extract from tweet links - fallback service needed
             "signature_shoe": shoe.signature_shoe,
@@ -225,7 +227,9 @@ class ShoeCSVFormatter:
         submission_id = str(uuid.uuid4())
 
         # Extract brand and model from shoe_name
-        brand, model, color_description = self._parse_shoe_name(game_shoe.shoe_name)
+        brand, model, color_description = await self._parse_shoe_name_enhanced(
+            game_shoe
+        )
 
         # Get enhanced data from KicksCrew
         kickscrew_data = await self._get_kickscrew_enhanced_data(
@@ -236,15 +240,21 @@ class ShoeCSVFormatter:
         kickscrew_url = None
         if not kickscrew_data and game_shoe.shoe_url:
             try:
-                kickscrew_url = await kickscrew_service._extract_kickscrew_url_from_kixstats(
-                    game_shoe.shoe_url
+                kickscrew_url = (
+                    await kickscrew_service._extract_kickscrew_url_from_kixstats(
+                        game_shoe.shoe_url
+                    )
                 )
             except Exception as e:
-                logger.debug(f"Could not extract KicksCrew URL from {game_shoe.shoe_url}: {e}")
+                logger.debug(
+                    f"Could not extract KicksCrew URL from {game_shoe.shoe_url}: {e}"
+                )
 
-        # Build enhanced pricing and links
-        release_date, price, shop_links = self._build_enhanced_pricing_data(
-            kickscrew_data, game_shoe.shoe_name, kickscrew_url
+        # Build enhanced pricing and links (with possible Sneaker Database data)
+        release_date, price, shop_links = (
+            self._build_enhanced_pricing_data_with_sneaker_db(
+                kickscrew_data, game_shoe, kickscrew_url
+            )
         )
 
         # Build game stats JSON
@@ -291,6 +301,45 @@ class ShoeCSVFormatter:
 
         return row
 
+    def _build_enhanced_pricing_data_with_sneaker_db(
+        self, kickscrew_data: Dict, game_shoe, kickscrew_url: Optional[str]
+    ) -> tuple:
+        """Build pricing data using KicksCrew and Sneaker Database enhancement"""
+        import json
+
+        # Check if we have Sneaker Database enhancement data
+        enhancement_data = getattr(game_shoe, "_enhancement_data", None)
+
+        if enhancement_data:
+            # Use Sneaker Database data
+            release_date = enhancement_data.get("release_date")
+            if release_date:
+                release_date = release_date.isoformat()
+
+            retail_price = enhancement_data.get("retail_price")
+            stockx_link = enhancement_data.get("stockx_link")
+
+            # Build shop links array with StockX
+            shop_links = []
+            if stockx_link:
+                shop_links.append(stockx_link)
+            if kickscrew_url:  # Add KicksCrew too if available
+                shop_links.append(kickscrew_url)
+
+            # Use KicksCrew price if available, otherwise Sneaker Database retail price
+            price = (
+                kickscrew_data.get("price", retail_price)
+                if kickscrew_data
+                else retail_price
+            )
+
+            return release_date, price, json.dumps(shop_links)
+
+        # Fallback to original KicksCrew-only logic
+        return self._build_enhanced_pricing_data(
+            kickscrew_data, game_shoe.shoe_name, kickscrew_url
+        )
+
     async def _get_kickscrew_enhanced_data(
         self, game_shoe: GameShoeData, kickscrew_service: KicksCrewService
     ):
@@ -306,7 +355,9 @@ class ShoeCSVFormatter:
             logger.debug(f"Could not get KicksCrew data for {game_shoe.shoe_url}: {e}")
             return None
 
-    def _build_enhanced_pricing_data(self, kickscrew_data, shoe_name: str, kickscrew_url: str = None) -> tuple:
+    def _build_enhanced_pricing_data(
+        self, kickscrew_data, shoe_name: str, kickscrew_url: str = None
+    ) -> tuple:
         """Build release date, price, and shop links with KicksCrew enhancement"""
         release_date = ""
         price = ""
@@ -368,7 +419,6 @@ class ShoeCSVFormatter:
         }
         return json.dumps(game_stats)
 
-
     def _parse_shoe_name(self, shoe_name: str) -> tuple:
         """Parse shoe name into brand, model, and color components"""
         # Examples:
@@ -410,6 +460,99 @@ class ShoeCSVFormatter:
             color_description = " ".join(parts[2:]) if len(parts) > 2 else ""
 
         return brand, model, color_description
+
+    async def _parse_shoe_name_enhanced(self, game_shoe) -> tuple:
+        """Parse shoe name with optional colorway enhancement"""
+        # First try standard parsing
+        brand, model, color_description = self._parse_shoe_name(game_shoe.shoe_name)
+
+        # Store enhancement data for later use
+        enhancement_data = None
+
+        # If colorway is missing and enhancement is enabled, try API lookup
+        if (
+            not color_description
+            and hasattr(self, "_should_enhance_colorways")
+            and self._should_enhance_colorways
+        ):
+            try:
+                enhancement_data = await self._enhance_colorway_with_api(
+                    brand, model, game_shoe.image_url
+                )
+                if enhancement_data:
+                    color_description = enhancement_data["colorway"]
+                    logger.info(
+                        f"Enhanced colorway for {brand} {model}: {color_description}"
+                    )
+            except Exception as e:
+                logger.debug(f"Colorway enhancement failed for {brand} {model}: {e}")
+
+        # Store enhancement data on game_shoe object for later use
+        if enhancement_data:
+            game_shoe._enhancement_data = enhancement_data
+
+        return brand, model, color_description
+
+    async def _enhance_colorway_with_api(
+        self, brand: str, model: str, image_url: str
+    ) -> Optional[dict]:
+        """Enhance colorway using Sneaker Database API - returns rich data"""
+        if not brand or not model or not image_url:
+            return None
+
+        try:
+            from services.sneaker_database_service import SneakerDatabaseService
+
+            # Parse image URLs from JSON array if needed
+            image_urls = []
+            if image_url.startswith("[") and image_url.endswith("]"):
+                import json
+
+                image_urls = json.loads(image_url)
+            else:
+                image_urls = [image_url]
+
+            if not image_urls:
+                return None
+
+            # Use first available image
+            primary_image = image_urls[0]
+
+            async with SneakerDatabaseService() as db_service:
+                # Get all colorways for this model
+                colorways = await db_service.get_colorways_for_model(brand, model)
+
+                if not colorways:
+                    logger.debug(f"No colorways found for {brand} {model}")
+                    return None
+
+                # Use vision matching to find best shoe
+                matched_shoe = await db_service.match_colorway_by_vision(
+                    primary_image, colorways
+                )
+
+                if not matched_shoe:
+                    return None
+
+                # Use the colorway field directly from API response
+                api_colorway = matched_shoe.colorway or "Unknown"
+
+                # Return rich enhancement data
+                return {
+                    "colorway": api_colorway,
+                    "stockx_link": matched_shoe.stockx_link,
+                    "release_date": matched_shoe.release_date,
+                    "retail_price": matched_shoe.retail_price,
+                }
+
+        except ImportError:
+            logger.debug(
+                "SneakerDatabaseService not available for colorway enhancement"
+            )
+            return None
+        except Exception as e:
+            logger.debug(f"Error in colorway enhancement: {e}")
+            return None
 
     def _detect_signature_shoe(self, shoe_name: str) -> bool:
         """Detect if this is a signature shoe"""

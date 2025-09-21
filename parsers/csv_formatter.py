@@ -132,8 +132,10 @@ class MilestoneCSVFormatter:
             "article_url": tweet.url,
             "original_submission_id": tweet.id,
             "is_award": "TRUE" if is_award else "FALSE",
-            "image_url": "",  # TwitterAPI.io doesn't provide image URLs
-            "image_data": "",  # TwitterAPI.io doesn't provide image data
+            "image_url": (
+                tweet.images[0] if tweet.images else ""
+            ),  # TwitterAPI.io doesn't provide images currently
+            "image_data": "",  # Image download requires future implementation (Playwright, Twitter API v2, etc.)
             "is_featured": "FALSE",
         }
 
@@ -242,5 +244,3 @@ class MilestoneCSVFormatter:
         """
         existing_rows = self.read_existing_csv()
         return [row.get("original_submission_id", "") for row in existing_rows]
-
-

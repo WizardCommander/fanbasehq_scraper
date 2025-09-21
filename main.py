@@ -123,7 +123,7 @@ Examples:
                 output_file=str(args.output),
                 limit=args.limit
             )
-            results = scraper.run()
+            results = await scraper.scrape_milestones()
             logger.info(f"Successfully scraped {results['milestones_found']} milestones")
             logger.info(f"Results saved to: {args.output}")
             

@@ -93,8 +93,10 @@ class TunnelFitCSVFormatter:
             "event": tunnel_fit.event,
             "date": date_string,
             "type": tunnel_fit.type,
-            "image_url": "",  # TwitterAPI.io doesn't provide image URLs
-            "image_data": "",  # TwitterAPI.io doesn't provide image data
+            "image_url": (
+                tweet.images[0] if tweet.images else ""
+            ),  # TwitterAPI.io doesn't provide images currently
+            "image_data": "",  # Image download requires future implementation (Playwright, Twitter API v2, etc.)
             "outfit_details": outfit_details_json,
             "social_stats": social_stats_json,
             "source": tweet.author_handle,  # Twitter account name (e.g. @caitlinclarksty)

@@ -111,7 +111,10 @@ class ShoeScraper:
 
             logger.info(f"Filtered to {len(filtered_games)} games in date range")
 
-            # Step 4: Format and save to CSV (enhanced with KicksCrew data)
+            # Step 4: Format and save to CSV (enhanced with KicksCrew and colorway data)
+            # Enable colorway enhancement if configured
+            self.csv_formatter._should_enhance_colorways = self.config.enhance_colorways
+
             csv_count = await self.csv_formatter.format_game_shoes_to_csv(
                 filtered_games
             )
