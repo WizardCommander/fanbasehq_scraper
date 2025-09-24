@@ -1,6 +1,7 @@
 """
 KicksCrew Service
 Web scraping service for extracting shoe release dates and prices from KicksCrew.com
+Rebuilt from historical implementation with enhancements for smart colorway integration
 """
 
 import logging
@@ -10,6 +11,7 @@ import urllib.parse
 from datetime import date, datetime
 from typing import Optional
 from dataclasses import dataclass
+from utils.branded_types import KicksCrewUrl, SearchUrl, Price
 import aiohttp
 from playwright.async_api import async_playwright
 from bs4 import BeautifulSoup
@@ -22,8 +24,8 @@ class KicksCrewShoeData:
     """Shoe data extracted from KicksCrew"""
 
     release_date: Optional[date]
-    retail_price: Optional[str]
-    kickscrew_url: str
+    retail_price: Optional[Price]
+    kickscrew_url: KicksCrewUrl
     product_name: str = ""
 
 
@@ -38,7 +40,7 @@ class KicksCrewService:
 
     async def __aenter__(self):
         self.playwright = await async_playwright().start()
-        self.browser = await self.playwright.chromium.launch(headless=False)
+        self.browser = await self.playwright.chromium.launch(headless=True)
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
@@ -140,7 +142,9 @@ class KicksCrewService:
 
         async with session.get(kixstats_shoe_url, headers=headers) as response:
             if response.status != 200:
-                logger.warning(f"Failed to fetch KixStats shoe page: {kixstats_shoe_url}")
+                logger.warning(
+                    f"Failed to fetch KixStats shoe page: {kixstats_shoe_url}"
+                )
                 return None
 
             html = await response.text()
@@ -152,18 +156,13 @@ class KicksCrewService:
                 kickscrew_links = box.find_all(
                     "a", href=lambda href: href and "kickscrew" in href
                 )
-                for link in kickscrew_links:
-                    affiliate_url = link.get("href", "")
-                    if affiliate_url:
-                        # Decode the affiliate URL to get clean KicksCrew URL
-                        clean_url = self._decode_kickscrew_affiliate_url(affiliate_url)
-                        if clean_url:
-                            logger.debug(f"Found KicksCrew URL: {clean_url}")
-                            return clean_url
+                if kickscrew_links:
+                    kickscrew_url = kickscrew_links[0]["href"]
+                    logger.info(f"Found KicksCrew URL: {kickscrew_url}")
+                    return kickscrew_url
 
-            logger.debug(f"No KicksCrew URL found for shoe: {kixstats_shoe_url}")
+            logger.debug(f"No KicksCrew link found in {kixstats_shoe_url}")
             return None
-
 
     async def _scrape_kickscrew_with_browser(
         self, browser, kickscrew_url: str
@@ -196,9 +195,7 @@ class KicksCrewService:
         """Setup page headers and navigate to URL"""
         try:
             # Set realistic headers
-            await page.set_extra_http_headers({
-                "Accept-Language": "en-US,en;q=0.9"
-            })
+            await page.set_extra_http_headers({"Accept-Language": "en-US,en;q=0.9"})
 
             logger.info(f"Fetching KicksCrew page: {kickscrew_url}")
             await page.goto(kickscrew_url, timeout=self.request_timeout)
@@ -211,144 +208,158 @@ class KicksCrewService:
             logger.error(f"Failed to navigate to KicksCrew page: {e}")
             raise
 
-    async def _extract_price_with_playwright(self, page) -> Optional[str]:
+    async def _extract_price_with_playwright(self, page) -> Optional[Price]:
         """Extract price using multiple Playwright selector strategies"""
-        price_selectors = [
-            "h1 ~ * span:has-text('$')",  # Span with $ near the title
-            ".price span:has-text('$')",  # Price class with span
-            "[class*='price'] span:has-text('$')",  # Any price-related class
-            "[data-price] span:has-text('$')",  # Data-price attribute
-            "span:has-text('$')",  # Last resort - any span with $
-        ]
+        price_selectors = self._get_price_selectors()
 
         for selector in price_selectors:
-            try:
-                price_element = await page.query_selector(selector)
-                if price_element:
-                    text_content = await price_element.text_content()
-                    if text_content and text_content.strip().startswith("$"):
-                        retail_price = text_content.strip()
-                        logger.info(f"Extracted price using selector '{selector}': {retail_price}")
-                        return retail_price
+            price = await self._try_price_selector(page, selector)
+            if price:
+                return price
 
-            except TimeoutError as e:
-                logger.debug(f"Timeout with selector '{selector}': {e}")
-                continue
-            except Exception as e:
-                logger.debug(f"Error with selector '{selector}': {e}")
-                continue
+        logger.debug("No price found with any selector")
+        return None
 
-        logger.debug("No price found with any selector strategy")
+    def _get_price_selectors(self) -> list[str]:
+        """Get list of price selectors in priority order"""
+        return [
+            "h1 ~ * span:has-text('$')",  # Span with $ near the title
+            ".price span:has-text('$')",  # Price class with span
+            "[data-price] span:has-text('$')",  # Data price attribute
+            "span:has-text('$'):near(h1)",  # Span with $ near h1
+            "span:has-text('$')",  # Any span with $
+        ]
+
+    async def _try_price_selector(self, page, selector: str) -> Optional[Price]:
+        """Try a single price selector and return price if found"""
+        try:
+            elements = await page.query_selector_all(selector)
+            for element in elements:
+                price = await self._extract_price_from_element(element)
+                if price:
+                    logger.info(f"Found price using selector '{selector}': {price}")
+                    return price
+        except Exception as e:
+            logger.debug(f"Selector '{selector}' failed: {e}")
+
+        return None
+
+    async def _extract_price_from_element(self, element) -> Optional[Price]:
+        """Extract price from a single page element"""
+        try:
+            text = await element.text_content()
+            if text and "$" in text:
+                return self._extract_price_from_text(text.strip())
+        except Exception as e:
+            logger.debug(f"Failed to extract text from element: {e}")
+
+        return None
+
+    def _extract_price_from_text(self, text: str) -> Optional[Price]:
+        """Extract price from text using regex"""
+        import re
+
+        # Look for patterns like $123.45, $123, etc.
+        price_patterns = [
+            r"\$(\d{1,4}(?:,\d{3})*(?:\.\d{2})?)",  # $123.45, $1,234.56
+            r"USD\s*(\d{1,4}(?:,\d{3})*(?:\.\d{2})?)",  # USD 123.45
+        ]
+
+        for pattern in price_patterns:
+            match = re.search(pattern, text)
+            if match:
+                price_value = match.group(1).replace(",", "")
+                return Price(f"${price_value}")
+
         return None
 
     def _parse_kickscrew_page(
         self, html: str, kickscrew_url: str
     ) -> Optional[KicksCrewShoeData]:
-        """Parse KicksCrew page for shoe metadata (release date and product name)"""
+        """Parse KicksCrew page HTML for product information"""
 
-        soup = BeautifulSoup(html, "html.parser")
-        scripts = soup.find_all("script", type="application/ld+json")
+        try:
+            soup = BeautifulSoup(html, "html.parser")
 
-        release_date = None
-        product_name = ""
+            # Extract product name
+            product_name = self._extract_product_name(soup)
 
-        for script in scripts:
-            try:
-                parsed_data = self._parse_json_ld_script(script)
-                if parsed_data:
-                    release_date = parsed_data.get('release_date') or release_date
-                    product_name = parsed_data.get('product_name') or product_name
+            # Extract release date
+            release_date = self._extract_release_date(soup)
 
-            except (json.JSONDecodeError, TypeError) as e:
-                logger.debug(f"Error parsing JSON-LD script: {e}")
-                continue
-
-        # Create result if we found any useful data
-        if release_date or product_name:
+            # Note: price will be overridden by Playwright extraction
             return KicksCrewShoeData(
                 release_date=release_date,
-                retail_price=None,  # Price handled by Playwright
-                kickscrew_url=kickscrew_url,
+                retail_price=None,  # Will be set by Playwright
+                kickscrew_url=KicksCrewUrl(kickscrew_url),
                 product_name=product_name,
             )
 
-        logger.debug(f"No structured data found in KicksCrew page: {kickscrew_url}")
-        return None
-
-    def _parse_json_ld_script(self, script) -> Optional[dict]:
-        """Parse individual JSON-LD script for product data"""
-        try:
-            data = json.loads(script.string)
-            data_items = self._normalize_json_ld_structure(data)
-
-            for item in data_items:
-                if self._is_product_item(item):
-                    return self._extract_product_metadata(item)
-
-        except json.JSONDecodeError:
-            return None
-
-        return None
-
-    def _normalize_json_ld_structure(self, data) -> list:
-        """Normalize JSON-LD data structure to a list of items"""
-        if isinstance(data, list):
-            return data
-        elif isinstance(data, dict):
-            if "@graph" in data:
-                return data["@graph"]
-            else:
-                return [data]
-        return []
-
-    def _is_product_item(self, item: dict) -> bool:
-        """Check if JSON-LD item represents a product"""
-        return isinstance(item, dict) and item.get("@type") in ["ProductGroup", "Product"]
-
-    def _extract_product_metadata(self, item: dict) -> dict:
-        """Extract release date and product name from product JSON-LD item"""
-        result = {}
-
-        # Extract release date
-        if "releaseDate" in item:
-            try:
-                result['release_date'] = datetime.strptime(
-                    item["releaseDate"], "%Y-%m-%d"
-                ).date()
-            except ValueError:
-                logger.warning(f"Invalid release date format: {item['releaseDate']}")
-
-        # Extract product name
-        if "name" in item:
-            result['product_name'] = item["name"]
-
-        return result
-
-    def _decode_kickscrew_affiliate_url(self, affiliate_url: str) -> Optional[str]:
-        """Decode KicksCrew affiliate URL to get clean product URL"""
-
-        try:
-            # Parse the affiliate URL
-            parsed = urllib.parse.urlparse(affiliate_url)
-            query_params = urllib.parse.parse_qs(parsed.query)
-
-            # Look for the 'u' parameter which contains the encoded clean URL
-            if "u" in query_params:
-                encoded_url = query_params["u"][0]
-                # URL decode the clean KicksCrew URL
-                clean_url = urllib.parse.unquote(encoded_url)
-                if "kickscrew.com" in clean_url:
-                    return clean_url
-
-            # If we can't decode, return the original URL if it's already a KicksCrew URL
-            if "kickscrew.com" in affiliate_url:
-                return affiliate_url
-
-            return None
-
         except Exception as e:
-            logger.error(f"Error decoding affiliate URL {affiliate_url}: {e}")
-            # If we can't decode but it's a KicksCrew URL, return it
-            if "kickscrew.com" in affiliate_url:
-                return affiliate_url
+            logger.error(f"Error parsing KicksCrew page: {e}")
             return None
+
+    def _extract_product_name(self, soup: BeautifulSoup) -> str:
+        """Extract product name from page"""
+        selectors = ["h1", ".product-title", ".title", "title"]
+
+        for selector in selectors:
+            element = soup.select_one(selector)
+            if element and element.get_text(strip=True):
+                return element.get_text(strip=True)
+
+        return ""
+
+    def _extract_release_date(self, soup: BeautifulSoup) -> Optional[date]:
+        """Extract release date from page"""
+        import re
+
+        # Look for release date patterns in text
+        text_content = soup.get_text()
+        date_patterns = [
+            r"Release Date:?\s*(\d{1,2}[/-]\d{1,2}[/-]\d{4})",
+            r"Released:?\s*(\d{1,2}[/-]\d{1,2}[/-]\d{4})",
+            r"(\d{4}-\d{2}-\d{2})",  # ISO format
+        ]
+
+        for pattern in date_patterns:
+            match = re.search(pattern, text_content, re.IGNORECASE)
+            if match:
+                try:
+                    date_str = match.group(1)
+                    # Try to parse the date
+                    if "/" in date_str:
+                        parsed_date = datetime.strptime(date_str, "%m/%d/%Y").date()
+                    elif "-" in date_str and len(date_str) == 10:
+                        parsed_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+                    else:
+                        continue
+
+                    return parsed_date
+                except ValueError:
+                    continue
+
+        return None
+
+    def build_search_url(self, brand: str, model: str, colorway: str = "") -> SearchUrl:
+        """
+        Build KicksCrew search URL using shoe details
+        Enhanced with smart colorway integration
+        """
+        search_terms = [brand, model]
+        if colorway:
+            search_terms.append(colorway)
+
+        query = " ".join(search_terms)
+        encoded_query = urllib.parse.quote(query)
+        return SearchUrl(f"{self.base_url}/search?q={encoded_query}")
+
+    def build_goat_search_url(self, shoe_name: str) -> SearchUrl:
+        """Build GOAT search URL from shoe name"""
+        query = urllib.parse.quote(shoe_name)
+        return SearchUrl(f"https://www.goat.com/search?query={query}")
+
+    def build_stockx_search_url(self, shoe_name: str) -> SearchUrl:
+        """Build StockX search URL from shoe name"""
+        query = urllib.parse.quote(shoe_name)
+        return SearchUrl(f"https://stockx.com/search?s={query}")
