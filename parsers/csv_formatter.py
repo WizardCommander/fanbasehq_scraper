@@ -134,8 +134,8 @@ class MilestoneCSVFormatter:
             "is_award": "TRUE" if is_award else "FALSE",
             "image_url": (
                 tweet.images[0] if tweet.images else ""
-            ),  # TwitterAPI.io doesn't provide images currently
-            "image_data": "",  # Image download requires future implementation (Playwright, Twitter API v2, etc.)
+            ),  # Real pbs.twimg.com URLs via universal image extraction system
+            "image_data": "",  # Image download requires future implementation
             "is_featured": "FALSE",
         }
 

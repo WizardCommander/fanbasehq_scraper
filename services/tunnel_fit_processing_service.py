@@ -29,6 +29,28 @@ class TunnelFitProcessingService:
     def __init__(self, ai_parser: AIParser = None):
         self.ai_parser = ai_parser or AIParser()
 
+    def _is_quality_tunnel_fit(self, tunnel_fit: TunnelFitData) -> bool:
+        """
+        Validate tunnel fit data quality to filter out low-value records
+
+        Args:
+            tunnel_fit: TunnelFitData object to validate
+
+        Returns:
+            True if tunnel fit meets quality standards, False otherwise
+        """
+        # Filter out empty outfit details
+        if not tunnel_fit.outfit_details or len(tunnel_fit.outfit_details) == 0:
+            return False
+
+        # Filter out single item with null shop link
+        if len(tunnel_fit.outfit_details) == 1:
+            item = tunnel_fit.outfit_details[0]
+            if item.get("shopLink") is None:
+                return False
+
+        return True
+
     async def process_tweets_to_tunnel_fits(
         self,
         tweets: List[ScrapedTweet],
@@ -69,7 +91,11 @@ class TunnelFitProcessingService:
                     tweet_created_at=tweet.created_at,
                 )
 
-                if tunnel_fit and tunnel_fit.is_tunnel_fit:
+                if (
+                    tunnel_fit
+                    and tunnel_fit.is_tunnel_fit
+                    and self._is_quality_tunnel_fit(tunnel_fit)
+                ):
                     # Override AI-extracted social stats with real Twitter metrics
                     tunnel_fit.social_stats = {
                         "views": tweet.view_count,
@@ -99,6 +125,11 @@ class TunnelFitProcessingService:
                         logger.debug(
                             f"Tunnel fit filtered out by date range: {tunnel_fit.date}"
                         )
+                elif tunnel_fit and tunnel_fit.is_tunnel_fit:
+                    # Tunnel fit failed quality check
+                    logger.debug(
+                        f"Tunnel fit filtered out by quality check: {len(tunnel_fit.outfit_details)} items"
+                    )
                 elif tunnel_fit:
                     # Not a tunnel fit, log for debugging
                     logger.debug(f"Tweet {tweet.id} determined to not be a tunnel fit")

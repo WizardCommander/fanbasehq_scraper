@@ -95,8 +95,8 @@ class TunnelFitCSVFormatter:
             "type": tunnel_fit.type,
             "image_url": (
                 tweet.images[0] if tweet.images else ""
-            ),  # TwitterAPI.io doesn't provide images currently
-            "image_data": "",  # Image download requires future implementation (Playwright, Twitter API v2, etc.)
+            ),  # Real pbs.twimg.com URLs via universal image extraction system
+            "image_data": "",  # Image download requires future implementation
             "outfit_details": outfit_details_json,
             "social_stats": social_stats_json,
             "source": tweet.author_handle,  # Twitter account name (e.g. @caitlinclarksty)
