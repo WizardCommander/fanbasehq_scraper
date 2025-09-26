@@ -84,10 +84,12 @@ class TwitterAPIClient:
         logger.info(f"Searching tweets: {formatted_query}")
         logger.info(f"Will fetch up to {max_pages} pages ({limit} tweets)")
 
+        # Step 1: Collect tweet IDs from search endpoint
+        tweet_ids = []
         async with aiohttp.ClientSession(
             timeout=aiohttp.ClientTimeout(total=TWITTER_API_TIMEOUT)
         ) as session:
-            while pages_fetched < max_pages and len(tweets) < limit:
+            while pages_fetched < max_pages and len(tweet_ids) < limit:
                 try:
                     # Prepare request parameters
                     params = {
@@ -111,22 +113,22 @@ class TwitterAPIClient:
 
                         data = await response.json()
 
-                        # Process tweets from this page
+                        # Collect tweet IDs from this page
                         page_tweets = data.get("tweets", [])
                         if not page_tweets:
                             logger.info("No more tweets found")
                             break
 
                         for tweet_data in page_tweets:
-                            if len(tweets) >= limit:
+                            if len(tweet_ids) >= limit:
                                 break
 
-                            tweet = self._convert_tweet_data(tweet_data)
-                            if tweet:
-                                tweets.append(tweet)
+                            tweet_id = tweet_data.get("id")
+                            if tweet_id:
+                                tweet_ids.append(tweet_id)
 
                         logger.info(
-                            f"Got {len(page_tweets)} tweets from page {pages_fetched + 1}"
+                            f"Collected {len(page_tweets)} tweet IDs from page {pages_fetched + 1}"
                         )
 
                         # Check if there are more pages
@@ -148,7 +150,15 @@ class TwitterAPIClient:
                     logger.error(f"Error fetching page {pages_fetched + 1}: {e}")
                     break
 
-        logger.info(f"Found {len(tweets)} total tweets")
+        logger.info(f"Collected {len(tweet_ids)} tweet IDs")
+
+        # Step 2: Get full tweet data with images using get_tweets_by_ids
+        if tweet_ids:
+            tweets = await self.get_tweets_by_ids(tweet_ids)
+        else:
+            tweets = []
+
+        logger.info(f"Found {len(tweets)} total tweets with full data")
         return tweets
 
     async def get_tweets_from_accounts(
@@ -261,14 +271,15 @@ class TwitterAPIClient:
             quote_count = tweet_data.get("quoteCount", 0)
             view_count = tweet_data.get("viewCount")
 
-            # Extract media/images
+            # Extract media/images from extendedEntities (get_tweets_by_ids provides this)
             images = []
-            includes = tweet_data.get("includes", {})
-            media_list = includes.get("media", [])
+            extended_entities = tweet_data.get("extendedEntities", {})
+            media_list = extended_entities.get("media", [])
 
             for media in media_list:
                 if media.get("type") == "photo":
-                    image_url = media.get("url", "")
+                    # Use media_url_https for direct pbs.twimg.com URLs
+                    image_url = media.get("media_url_https", "")
                     if image_url:  # Only add non-empty URLs
                         images.append(image_url)
 
@@ -305,6 +316,66 @@ class TwitterAPIClient:
         except Exception as e:
             logger.error("Error converting tweet data: %s", e)
             return None
+
+    async def get_tweets_by_ids(self, tweet_ids: List[str]) -> List[ScrapedTweet]:
+        """
+        Get full tweet data by IDs using TwitterAPI.io tweets endpoint
+        This endpoint provides extendedEntities with direct image URLs
+
+        Args:
+            tweet_ids: List of tweet ID strings
+
+        Returns:
+            List of ScrapedTweet objects with image URLs populated
+        """
+        if not tweet_ids:
+            return []
+
+        tweets = []
+
+        # Join tweet IDs with commas for API call
+        ids_param = ",".join(tweet_ids)
+
+        async with aiohttp.ClientSession(
+            timeout=aiohttp.ClientTimeout(total=TWITTER_API_TIMEOUT)
+        ) as session:
+            try:
+                url = f"{self.base_url}/twitter/tweets"
+                params = {"tweet_ids": ids_param}
+
+                logger.info(f"Fetching {len(tweet_ids)} tweets by IDs")
+
+                async with session.get(
+                    url, headers=self.headers, params=params
+                ) as response:
+                    if response.status != 200:
+                        logger.error(
+                            f"API request failed: {response.status} - {await response.text()}"
+                        )
+                        return []
+
+                    data = await response.json()
+
+                    # Process tweets from response
+                    tweet_list = data.get("tweets", [])
+                    if not tweet_list:
+                        logger.warning("No tweets returned from get_tweets_by_ids")
+                        return []
+
+                    for tweet_data in tweet_list:
+                        tweet = self._convert_tweet_data(tweet_data)
+                        if tweet:
+                            tweets.append(tweet)
+
+                    logger.info(
+                        f"Successfully processed {len(tweets)} tweets with full data"
+                    )
+
+            except Exception as e:
+                logger.error(f"Error fetching tweets by IDs: {e}")
+                return []
+
+        return tweets
 
     def _is_reply_tweet(self, tweet_data: Dict) -> bool:
         """Check if tweet is a reply using TwitterAPI.io response fields"""
