@@ -9,13 +9,19 @@ import uuid
 import urllib.parse
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional
 
 from parsers.ai_parser import ShoeData
 from services.kixstats_service import GameShoeData
 from services.kickscrew_service import KicksCrewService
-from config.settings import CSV_ENCODING
-from utils.branded_types import ShoeBrand, ShoeModel, ImageUrl
+from utils.image_service import download_and_encode_shoe_image, _select_best_shoe_image
+from config.settings import (
+    CSV_ENCODING,
+    CLIENT_SUBMITTER_NAME,
+    CLIENT_SUBMITTER_EMAIL,
+    CLIENT_USER_ID,
+    CLIENT_ORIGINAL_SUBMISSION_ID,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +67,7 @@ class ShoeCSVFormatter:
         self.output_file = Path(output_file)
         self.output_file.parent.mkdir(parents=True, exist_ok=True)
 
-    def format_shoes_to_csv(
+    async def format_shoes_to_csv(
         self, shoes: List[ShoeData], tweet_sources: Dict[str, str] = None
     ) -> int:
         """
@@ -86,7 +92,7 @@ class ShoeCSVFormatter:
                 writer.writeheader()
 
                 for shoe in shoes:
-                    row = self._format_shoe_to_row(shoe, tweet_sources)
+                    row = await self._format_shoe_to_row(shoe, tweet_sources)
                     writer.writerow(row)
 
             logger.info(f"Successfully wrote {len(shoes)} shoes to {self.output_file}")
@@ -96,7 +102,7 @@ class ShoeCSVFormatter:
             logger.error(f"Error writing shoes to CSV: {e}")
             return 0
 
-    def _format_shoe_to_row(
+    async def _format_shoe_to_row(
         self, shoe: ShoeData, tweet_sources: Dict[str, str] = None
     ) -> Dict:
         """Format a single ShoeData object to CSV row dictionary"""
@@ -147,10 +153,8 @@ class ShoeCSVFormatter:
             "model": shoe.model,
             "color_description": shoe.color_description,
             "release_date": release_date,
-            "image_url": (
-                tweet.images[0] if tweet.images else ""
-            ),  # Real pbs.twimg.com URLs via universal image extraction system
-            "image_data": "",  # Image download requires future implementation
+            "image_url": "",  # Twitter-based shoes don't have direct image URLs in ShoeData
+            "image_data": "",  # Image processing only available for KixStats game shoes
             "price": price,
             "shop_links": "[]",  # Would extract from tweet links - fallback service needed
             "signature_shoe": shoe.signature_shoe,
@@ -164,10 +168,10 @@ class ShoeCSVFormatter:
             "photographer_link": "",  # Would need extraction - fallback service
             "additional_notes": self._build_additional_notes(shoe),
             "status": "approved",  # Default status
-            "submitter_name": "shoe_scraper",  # Bot submission
-            "submitter_email": "",
-            "user_id": submission_id,
-            "original_submission_id": submission_id,
+            "submitter_name": CLIENT_SUBMITTER_NAME,
+            "submitter_email": CLIENT_SUBMITTER_EMAIL,
+            "user_id": CLIENT_USER_ID,
+            "original_submission_id": CLIENT_ORIGINAL_SUBMISSION_ID,
             "created_at": now,
             "updated_at": now,
             "game_stats": game_stats_json,
@@ -278,7 +282,11 @@ class ShoeCSVFormatter:
             "color_description": color_description,
             "release_date": release_date,
             "image_url": game_shoe.image_url,
-            "image_data": "",
+            "image_data": (
+                await download_and_encode_shoe_image(game_shoe.image_url)
+                if game_shoe.image_url
+                else ""
+            ),
             "price": price,
             "shop_links": shop_links,
             "signature_shoe": is_signature,
@@ -294,10 +302,10 @@ class ShoeCSVFormatter:
                 game_shoe, kickscrew_data
             ),
             "status": "approved",  # Default status
-            "submitter_name": "kixstats_scraper",
-            "submitter_email": "",
-            "user_id": submission_id,
-            "original_submission_id": submission_id,
+            "submitter_name": CLIENT_SUBMITTER_NAME,
+            "submitter_email": CLIENT_SUBMITTER_EMAIL,
+            "user_id": CLIENT_USER_ID,
+            "original_submission_id": CLIENT_ORIGINAL_SUBMISSION_ID,
             "created_at": now,
             "updated_at": now,
             "game_stats": game_stats_json,
@@ -369,7 +377,7 @@ class ShoeCSVFormatter:
                     "steals": game_shoe.steals,
                     "blocks": game_shoe.blocks,
                     "minutes": game_shoe.minutes,
-                    "opponent": "Unknown",  # KixStats doesn't provide opponent info
+                    "opponent": game_shoe.opponent,
                 }
             ],
             "summary": {
@@ -386,7 +394,7 @@ class ShoeCSVFormatter:
                     "rebounds": game_shoe.rebounds,
                     "assists": game_shoe.assists,
                     "minutes": game_shoe.minutes,
-                    "opponent": "Unknown",
+                    "opponent": game_shoe.opponent,
                 },
             },
         }
@@ -481,10 +489,8 @@ class ShoeCSVFormatter:
             if not image_urls:
                 return None
 
-            # Select best image for analysis (game photo priority)
-            best_image_url, image_type = self._select_best_image_for_analysis(
-                image_urls
-            )
+            # Use centralized image selection logic
+            best_image_url = _select_best_shoe_image(image_urls)
 
             if not best_image_url:
                 logger.debug("No valid images available for color analysis")
@@ -535,47 +541,15 @@ class ShoeCSVFormatter:
             color_description = response.choices[0].message.content.strip()
 
             if color_description:
-                logger.info(
-                    f"AI color description using {image_type}: {color_description}"
-                )
+                logger.info(f"AI color description: {color_description}")
                 return color_description
             else:
-                logger.debug(f"No color description provided using {image_type}")
+                logger.debug("No color description provided")
                 return None
 
         except Exception as e:
             logger.debug(f"Error getting color description: {e}")
             return None
-
-    def _select_best_image_for_analysis(self, image_urls):
-        """
-        Select the best image for colorway analysis with game photo priority
-
-        Args:
-            image_urls: List of image URLs (product shot, game photo)
-
-        Returns:
-            Tuple of (image_url, image_type) or (None, None)
-        """
-        if not image_urls:
-            return None, None
-
-        # Priority 1: Game photo (second image) if available
-        if len(image_urls) >= 2:
-            game_photo_url = image_urls[1]
-            if self._is_game_photo(game_photo_url):
-                return game_photo_url, "game photo"
-
-        # Priority 2: Product shot (first image)
-        product_shot_url = image_urls[0]
-        image_type = (
-            "game photo" if self._is_game_photo(product_shot_url) else "product shot"
-        )
-        return product_shot_url, image_type
-
-    def _is_game_photo(self, image_url: str) -> bool:
-        """Check if image URL is a game photo based on URL pattern"""
-        return "/img/games/" in image_url
 
     def _detect_signature_shoe(self, shoe_name: str) -> bool:
         """Detect if this is a signature shoe"""

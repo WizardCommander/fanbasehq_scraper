@@ -11,7 +11,14 @@ from typing import List, Dict, Optional
 
 from utils.twitterapi_client import ScrapedTweet
 from parsers.ai_parser import TunnelFitData
-from config.settings import CSV_ENCODING
+from utils.image_service import download_and_encode_image
+from config.settings import (
+    CSV_ENCODING,
+    CLIENT_SUBMITTER_NAME,
+    CLIENT_SUBMITTER_EMAIL,
+    CLIENT_USER_ID,
+    CLIENT_ORIGINAL_SUBMISSION_ID,
+)
 from utils.branded_types import SubmissionId, submission_id
 
 
@@ -96,7 +103,9 @@ class TunnelFitCSVFormatter:
             "image_url": (
                 tweet.images[0] if tweet.images else ""
             ),  # Real pbs.twimg.com URLs via universal image extraction system
-            "image_data": "",  # Image download requires future implementation
+            "image_data": (
+                await download_and_encode_image(tweet.images[0]) if tweet.images else ""
+            ),
             "outfit_details": outfit_details_json,
             "social_stats": social_stats_json,
             "source": tweet.author_handle,  # Twitter account name (e.g. @caitlinclarksty)
@@ -104,15 +113,15 @@ class TunnelFitCSVFormatter:
             "photographer": "",
             "photographer_link": "",
             "additional_notes": "",
-            "submitter_name": "scraper_bot",  # Bot identifier
-            "user_id": "automated_scraper",
+            "submitter_name": CLIENT_SUBMITTER_NAME,
+            "user_id": CLIENT_USER_ID,
             "status": "pending",
             "created_at": timestamp,
             "updated_at": timestamp,
-            "original_submission_id": str(tunnel_fit.source_tweet_id.value),
+            "original_submission_id": CLIENT_ORIGINAL_SUBMISSION_ID,
             "location": tunnel_fit.location,
             "style_category": "",  # Could be populated from outfit analysis
-            "submitter_email": "scraper@fanbasehq.ai",
+            "submitter_email": CLIENT_SUBMITTER_EMAIL,
         }
 
     async def write_tunnel_fits_to_csv(

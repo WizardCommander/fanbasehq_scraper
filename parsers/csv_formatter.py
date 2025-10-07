@@ -12,7 +12,14 @@ from typing import List, Dict, Optional
 from utils.twitterapi_client import ScrapedTweet
 from parsers.ai_parser import MilestoneData
 from parsers.date_resolver import create_date_resolver
-from config.settings import CSV_ENCODING
+from utils.image_service import download_and_encode_image
+from config.settings import (
+    CSV_ENCODING,
+    CLIENT_SUBMITTER_NAME,
+    CLIENT_SUBMITTER_EMAIL,
+    CLIENT_USER_ID,
+    CLIENT_ORIGINAL_SUBMISSION_ID,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -121,21 +128,23 @@ class MilestoneCSVFormatter:
             "categories": categories_json,
             "previous_record": milestone.previous_record,
             "description": milestone.description or tweet.text,
-            "submitter_name": "scraper_bot",  # Bot identifier
-            "user_id": "automated_scraper",
+            "submitter_name": CLIENT_SUBMITTER_NAME,
+            "user_id": CLIENT_USER_ID,
             "status": (
                 "pending" if resolved_date else "needs_date_review"
             ),  # Flag uncertain dates for review
             "created_at": timestamp,
             "updated_at": timestamp,
-            "submitter_email": "scraper@fanbasehq.ai",
+            "submitter_email": CLIENT_SUBMITTER_EMAIL,
             "article_url": tweet.url,
-            "original_submission_id": tweet.id,
+            "original_submission_id": CLIENT_ORIGINAL_SUBMISSION_ID,
             "is_award": "TRUE" if is_award else "FALSE",
             "image_url": (
                 tweet.images[0] if tweet.images else ""
             ),  # Real pbs.twimg.com URLs via universal image extraction system
-            "image_data": "",  # Image download requires future implementation
+            "image_data": (
+                await download_and_encode_image(tweet.images[0]) if tweet.images else ""
+            ),
             "is_featured": "FALSE",
         }
 
