@@ -41,8 +41,12 @@ fi
 PYTHON_VERSION=$(python3 --version | cut -d' ' -f2 | cut -d'.' -f1,2)
 echo -e "${GREEN}✓ Python version: $(python3 --version)${NC}"
 
-# Check if virtualenv exists
-if [ ! -d "$PROJECT_ROOT/venv" ]; then
+# Check if virtualenv exists and is valid
+if [ ! -d "$PROJECT_ROOT/venv" ] || [ ! -f "$PROJECT_ROOT/venv/bin/activate" ]; then
+    if [ -d "$PROJECT_ROOT/venv" ]; then
+        echo -e "${YELLOW}⚠ Removing incomplete virtual environment...${NC}"
+        rm -rf "$PROJECT_ROOT/venv"
+    fi
     echo "Creating virtual environment..."
     python3 -m venv "$PROJECT_ROOT/venv"
     echo -e "${GREEN}✓ Virtual environment created${NC}"
