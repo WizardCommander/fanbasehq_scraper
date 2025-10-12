@@ -13,7 +13,7 @@ from config.settings import CONFIG_DIR, PLAYERS_FILE, TWITTER_ACCOUNTS_FILE
 from utils.roster_cache import lookup_player_team_with_id
 from services.scraper_config import ScraperConfig
 from services.twitter_search_service import TwitterSearchService
-from services.milestone_processing_service import MilestoneProcessingService
+from services.content_processing_service import ContentProcessingService, ContentType
 from services.result_aggregation_service import ResultAggregationService
 from parsers.ai_parser import AIParser
 from parsers.csv_formatter import MilestoneCSVFormatter
@@ -29,7 +29,7 @@ class MilestoneScraper:
         self,
         config: ScraperConfig,
         twitter_service: Optional[TwitterSearchService] = None,
-        processing_service: Optional[MilestoneProcessingService] = None,
+        processing_service: Optional[ContentProcessingService] = None,
         aggregation_service: Optional[ResultAggregationService] = None,
         csv_formatter: Optional[MilestoneCSVFormatter] = None,
     ):
@@ -39,7 +39,7 @@ class MilestoneScraper:
 
         # Initialize services with dependency injection
         self.twitter_service = twitter_service or TwitterSearchService()
-        self.processing_service = processing_service or MilestoneProcessingService()
+        self.processing_service = processing_service or ContentProcessingService()
         self.aggregation_service = aggregation_service or ResultAggregationService()
         self.csv_formatter = csv_formatter or MilestoneCSVFormatter(config.output_file)
 
@@ -131,20 +131,19 @@ class MilestoneScraper:
                 f"Processing {len(search_result.tweets)} tweets from {search_result.account} × {search_result.variation}"
             )
 
-            processing_result = (
-                await self.processing_service.process_tweets_to_milestones(
-                    tweets=search_result.tweets,
-                    target_player=self.config.player_display_name,
-                    start_date=self.config.start_date,
-                    end_date=self.config.end_date,
-                )
+            processing_result = await self.processing_service.process_tweets(
+                tweets=search_result.tweets,
+                content_type=ContentType.MILESTONE,
+                target_player=self.config.player_display_name,
+                start_date=self.config.start_date,
+                end_date=self.config.end_date,
             )
 
-            if processing_result.milestones:
+            if processing_result.content_items:
                 milestone_batches.append(
-                    (processing_result.milestones, search_result.tweets)
+                    (processing_result.content_items, search_result.tweets)
                 )
-                logger.info(f"Found {processing_result.milestones_found} milestones")
+                logger.info(f"Found {processing_result.items_found} milestones")
 
             total_tweets_processed += processing_result.tweets_processed
 

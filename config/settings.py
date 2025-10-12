@@ -71,6 +71,18 @@ CLIENT_SUBMITTER_EMAIL = "sage3313@gmail.com"
 CLIENT_USER_ID = ""  # Blank as requested
 CLIENT_ORIGINAL_SUBMISSION_ID = ""  # Blank as requested
 
+# Email Configuration (SMTP)
+SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
+SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USER = os.getenv("SMTP_USER", "")
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
+NOTIFICATION_EMAIL = os.getenv("NOTIFICATION_EMAIL", "")
+
+# Monitoring Configuration
+ENABLE_EMAIL_DELIVERY = os.getenv("ENABLE_EMAIL_DELIVERY", "true").lower() == "true"
+ENABLE_ERROR_ALERTS = os.getenv("ENABLE_ERROR_ALERTS", "true").lower() == "true"
+HEALTH_CHECK_DAYS = int(os.getenv("HEALTH_CHECK_DAYS", "3"))
+
 # Logging Configuration
 LOG_LEVEL = "INFO"
 LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"

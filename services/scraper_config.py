@@ -81,4 +81,3 @@ class ScraperConfig:
 
         if not self.player_variations:
             raise ValueError("At least one player variation is required")
-

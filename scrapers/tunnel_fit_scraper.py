@@ -12,9 +12,9 @@ from typing import Dict, List, Optional
 from config.settings import CONFIG_DIR, PLAYERS_FILE, TWITTER_ACCOUNTS_FILE
 from services.scraper_config import ScraperConfig
 from services.twitter_search_service import TwitterSearchService
-from services.tunnel_fit_processing_service import TunnelFitProcessingService
+from services.content_processing_service import ContentProcessingService, ContentType
 from services.tunnel_fit_aggregation_service import TunnelFitAggregationService
-from parsers.ai_parser import AIParser
+from parsers.ai_parser import AIParser, TunnelFitData
 from parsers.tunnel_fit_csv_formatter import TunnelFitCSVFormatter
 
 
@@ -28,7 +28,7 @@ class TunnelFitScraper:
         self,
         config: ScraperConfig,
         twitter_service: Optional[TwitterSearchService] = None,
-        processing_service: Optional[TunnelFitProcessingService] = None,
+        processing_service: Optional[ContentProcessingService] = None,
         aggregation_service: Optional[TunnelFitAggregationService] = None,
         csv_formatter: Optional[TunnelFitCSVFormatter] = None,
     ):
@@ -38,7 +38,7 @@ class TunnelFitScraper:
 
         # Initialize services with dependency injection
         self.twitter_service = twitter_service or TwitterSearchService()
-        self.processing_service = processing_service or TunnelFitProcessingService()
+        self.processing_service = processing_service or ContentProcessingService()
         self.aggregation_service = aggregation_service or TunnelFitAggregationService()
         self.csv_formatter = csv_formatter or TunnelFitCSVFormatter(config.output_file)
 
@@ -127,20 +127,21 @@ class TunnelFitScraper:
                 f"Processing {len(search_result.tweets)} tweets from {search_result.account} × {search_result.variation}"
             )
 
-            processing_result = (
-                await self.processing_service.process_tweets_to_tunnel_fits(
-                    tweets=search_result.tweets,
-                    target_player=self.config.player_display_name,
-                    start_date=self.config.start_date,
-                    end_date=self.config.end_date,
-                )
+            processing_result = await self.processing_service.process_tweets(
+                tweets=search_result.tweets,
+                content_type=ContentType.TUNNEL_FIT,
+                target_player=self.config.player_display_name,
+                start_date=self.config.start_date,
+                end_date=self.config.end_date,
+                quality_filter=self._is_quality_tunnel_fit,
+                post_processor=self._override_social_stats,
             )
 
-            if processing_result.tunnel_fits:
+            if processing_result.content_items:
                 tunnel_fit_batches.append(
-                    (processing_result.tunnel_fits, search_result.tweets)
+                    (processing_result.content_items, search_result.tweets)
                 )
-                logger.info(f"Found {processing_result.tunnel_fits_found} tunnel fits")
+                logger.info(f"Found {processing_result.items_found} tunnel fits")
 
             total_tweets_processed += processing_result.tweets_processed
 
@@ -213,6 +214,48 @@ class TunnelFitScraper:
             logger.warning("No tunnel fits found after processing")
             await self._write_empty_results()
             return self._create_results_summary(0, total_tweets_processed, [])
+
+    def _is_quality_tunnel_fit(self, tunnel_fit: TunnelFitData) -> bool:
+        """
+        Validate tunnel fit data quality to filter out low-value records
+
+        Args:
+            tunnel_fit: TunnelFitData object to validate
+
+        Returns:
+            True if tunnel fit meets quality standards, False otherwise
+        """
+        # Filter out empty outfit details
+        if not tunnel_fit.outfit_details or len(tunnel_fit.outfit_details) == 0:
+            return False
+
+        # Filter out single item with null shop link
+        if len(tunnel_fit.outfit_details) == 1:
+            item = tunnel_fit.outfit_details[0]
+            if item.get("shopLink") is None:
+                return False
+
+        return True
+
+    def _override_social_stats(self, tunnel_fit: TunnelFitData, tweet) -> TunnelFitData:
+        """
+        Override AI-extracted social stats with real Twitter metrics
+
+        Args:
+            tunnel_fit: TunnelFitData object
+            tweet: Source ScrapedTweet object
+
+        Returns:
+            TunnelFitData with updated social stats
+        """
+        tunnel_fit.social_stats = {
+            "views": tweet.view_count,
+            "likes": tweet.like_count,
+            "retweets": tweet.retweet_count,
+            "replies": tweet.reply_count,
+            "quotes": tweet.quote_count,
+        }
+        return tunnel_fit
 
     async def _write_empty_results(self) -> None:
         """Write empty CSV when no results found"""
