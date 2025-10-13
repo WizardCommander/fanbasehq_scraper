@@ -208,8 +208,15 @@ class EmailService:
                 f"Sending email to {recipient} via {self.smtp_host}:{self.smtp_port}"
             )
 
-            server = smtplib.SMTP(self.smtp_host, self.smtp_port)
-            server.starttls()
+            # Use SSL (port 465) or TLS (port 587) based on port number
+            if self.smtp_port == 465:
+                # SSL connection for port 465
+                server = smtplib.SMTP_SSL(self.smtp_host, self.smtp_port, timeout=30)
+            else:
+                # TLS connection for port 587
+                server = smtplib.SMTP(self.smtp_host, self.smtp_port, timeout=30)
+                server.starttls()
+
             server.login(self.smtp_user, self.smtp_password)
             text = msg.as_string()
             server.sendmail(self.smtp_user, recipient, text)
