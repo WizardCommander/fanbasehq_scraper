@@ -205,12 +205,13 @@ Examples:
             date_range=f"{args.start_date} to {args.end_date}",
         )
 
-        # Send email with results if configured
-        if should_send_email and success:
+        # Send email with results if configured and items were found
+        items_found = results.get(items_key, 0)
+        if should_send_email and success and items_found > 0:
             logger.info(f"Sending results email to {email_recipient}")
             metrics = {
                 "Scraper Type": args.type,
-                "Items Found": results.get(items_key, 0),
+                "Items Found": items_found,
                 "Tweets Processed": results.get("tweets_processed", 0),
                 "Duration": f"{duration:.1f}s",
                 "Date Range": f"{args.start_date} to {args.end_date}",
@@ -226,6 +227,8 @@ Examples:
                 logger.info("Results email sent successfully")
             else:
                 logger.warning("Failed to send results email")
+        elif should_send_email and success and items_found == 0:
+            logger.info(f"No items found - skipping email delivery")
 
     except KeyboardInterrupt:
         logger.info("Scraping interrupted by user")

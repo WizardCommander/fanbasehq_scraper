@@ -7,17 +7,14 @@ Modular scraper for FanbaseHQ to collect Caitlin Clark milestones, shoes, and tu
 1. **Install dependencies:**
 ```bash
 pip install -r requirements.txt
+playwright install chromium
 ```
 
 2. **Set up API keys:**
-   - Copy `config/.env.example` to `config/.env`
-   - Add your OpenAI API key to `config/.env`
-
-3. **Configure Twitter accounts (twscrape):**
-```bash
-twscrape add_account username password email password
-twscrape login_accounts
-```
+   - Copy `deployment/.env.production.example` to `config/.env`
+   - Add your OpenAI API key
+   - Add your TwitterAPI.io API key
+   - Configure SMTP settings for email notifications
 
 ## Usage
 
@@ -44,27 +41,29 @@ python main.py --player "caitlin clark" --dry-run
 ## Configuration
 
 - **Players**: `config/players.json` - Player name variations
-- **Accounts**: `config/accounts.json` - X.com accounts to scrape 
-- **Keywords**: `config/keywords.json` - Keywords for pre-filtering
-- **Settings**: `config/settings.py` - API keys and general settings
+- **Accounts**: `config/accounts.json` - Twitter accounts to scrape
+- **Environment**: `config/.env` - API keys and SMTP settings
+- **Settings**: `config/settings.py` - Configuration management
 
 ## Output
 
 Generates CSV files matching FanbaseHQ schema in the `output/` directory:
 - `milestones.csv` - Player milestone submissions
-- `shoes.csv` - Shoe submissions (coming soon)
-- `tunnel_fits.csv` - Tunnel fit submissions (coming soon)
+- `shoes.csv` - Shoe submissions with game stats
+- `tunnel_fits.csv` - Tunnel fit submissions
 
 ## Architecture
 
-- **Modular design** - Easy to add new submission types or players
-- **AI-powered parsing** - Uses GPT to extract structured data from tweets
-- **Keyword pre-filtering** - Reduces API costs by filtering irrelevant posts
+- **Service layer design** - Clean separation of concerns with dependency injection
+- **AI-powered parsing** - Uses OpenAI GPT-4o-mini to extract structured data
+- **Multi-source data** - TwitterAPI.io for tweets, KixStats.com for shoes, SportDataverse for game validation
+- **Semantic deduplication** - Fuzzy matching to eliminate duplicate milestones across sources
+- **Production ready** - Email notifications, monitoring, error alerts, cron automation
 - **CSV output** - Matches exact FanbaseHQ Supabase schema
 
 ## Development
 
 - Add new players to `config/players.json`
-- Add new X.com accounts to `config/accounts.json` 
-- Customize keywords in `config/keywords.json`
+- Add new Twitter accounts to `config/accounts.json`
 - Extend with new scrapers in `scrapers/` directory
+- See `PRODUCTION_GUIDE.md` for deployment instructions

@@ -97,3 +97,15 @@ tests/
 
 # MD files
 HANDOFF_NOTES.md
+
+# Root-level development files (parent directory - not needed in client deliverable)
+../.claude/
+../CLAUDE.md
+../plan.md
+../todo.md
+../lin plan.txt
+../wireframe.excalidraw
+../db_csvs/
+../kixstats_page_source.md
+../kixstats_shoe_page_source.md
+../TwitterAPI_Documentation.md
