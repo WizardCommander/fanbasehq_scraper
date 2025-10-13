@@ -18,6 +18,7 @@ from config.settings import (
     SMTP_PORT,
     SMTP_USER,
     SMTP_PASSWORD,
+    SMTP_FROM_EMAIL,
     NOTIFICATION_EMAIL,
 )
 
@@ -33,11 +34,13 @@ class EmailService:
         smtp_port: Optional[int] = None,
         smtp_user: Optional[str] = None,
         smtp_password: Optional[str] = None,
+        smtp_from_email: Optional[str] = None,
     ):
         self.smtp_host = smtp_host or SMTP_HOST
         self.smtp_port = smtp_port or SMTP_PORT
         self.smtp_user = smtp_user or SMTP_USER
         self.smtp_password = smtp_password or SMTP_PASSWORD
+        self.smtp_from_email = smtp_from_email or SMTP_FROM_EMAIL or self.smtp_user
 
         if not all([self.smtp_user, self.smtp_password]):
             logger.warning(
@@ -173,7 +176,7 @@ class EmailService:
     ) -> MIMEMultipart:
         """Create a multipart MIME message"""
         msg = MIMEMultipart()
-        msg["From"] = self.smtp_user
+        msg["From"] = self.smtp_from_email
         msg["To"] = recipient
         msg["Subject"] = subject
 
@@ -219,7 +222,7 @@ class EmailService:
 
             server.login(self.smtp_user, self.smtp_password)
             text = msg.as_string()
-            server.sendmail(self.smtp_user, recipient, text)
+            server.sendmail(self.smtp_from_email, recipient, text)
             server.quit()
 
             logger.info(f"Email sent successfully to {recipient}")
