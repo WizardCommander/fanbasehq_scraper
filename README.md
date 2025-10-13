@@ -1,4 +1,4 @@
-# Caitlin Clark WNBA Data Scraper
+# WNBA Data Scraper
 
 Modular scraper for FanbaseHQ to collect Caitlin Clark milestones, shoes, and tunnel fits from social media.
 
@@ -59,7 +59,7 @@ Generates CSV files matching FanbaseHQ schema in the `output/` directory:
 - **Multi-source data** - TwitterAPI.io for tweets, KixStats.com for shoes, SportDataverse for game validation
 - **Semantic deduplication** - Fuzzy matching to eliminate duplicate milestones across sources
 - **Production ready** - Email notifications, monitoring, error alerts, cron automation
-- **CSV output** - Matches exact FanbaseHQ Supabase schema
+- **CSV output** - Matches exact FanbaseHQ database schema
 
 ## Development
 
