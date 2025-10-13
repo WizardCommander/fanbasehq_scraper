@@ -73,8 +73,8 @@ class ScraperConfig:
         if not self.output_file:
             raise ValueError("Output file is required")
 
-        if self.start_date >= self.end_date:
-            raise ValueError("Start date must be before end date")
+        if self.start_date > self.end_date:
+            raise ValueError("Start date must be before or equal to end date")
 
         if self.limit <= 0:
             raise ValueError("Limit must be positive")

@@ -147,8 +147,8 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
         if grep -q "fanbasehq-scraper" /tmp/current_crontab 2>/dev/null; then
             echo -e "${YELLOW}⚠ Cron jobs already installed${NC}"
         else
-            # Append new cron jobs
-            cat "$CRON_FILE" >> /tmp/current_crontab
+            # Replace PROJECT_ROOT placeholder with actual path
+            sed "s|PROJECT_ROOT|$PROJECT_ROOT|g" "$CRON_FILE" >> /tmp/current_crontab
 
             # Install new crontab
             crontab /tmp/current_crontab

@@ -2,10 +2,11 @@
 # Run daily at 3 AM to scrape yesterday's data
 # Health check at 5 AM to verify scraping completed successfully
 
-# IMPORTANT: Replace /path/to/caitlin-clark-scraper with your actual project path
+# NOTE: This template file should be processed by setup.sh to replace PROJECT_ROOT
+# For manual installation, replace PROJECT_ROOT with your actual path (e.g., /opt/fanbasehq-scraper/caitlin-clark-scraper)
 
 # Daily scraper - runs all 3 scrapers sequentially and emails results
-0 3 * * * cd /path/to/caitlin-clark-scraper && /path/to/caitlin-clark-scraper/deployment/daily_scraper.sh >> /var/log/fanbasehq-scraper.log 2>&1 # fanbasehq-scraper-daily
+0 3 * * * cd PROJECT_ROOT && PROJECT_ROOT/deployment/daily_scraper.sh >> /var/log/fanbasehq-scraper.log 2>&1 # fanbasehq-scraper-daily
 
 # Health check - runs at 5 AM (2 hours after scrape) to verify everything worked
-0 5 * * * cd /path/to/caitlin-clark-scraper && /path/to/caitlin-clark-scraper/venv/bin/python -c "from services.monitoring_service import MonitoringService; from services.email_service import EmailService; from config.settings import NOTIFICATION_EMAIL; m = MonitoringService(); h = m.check_health(); print(h); EmailService().send_error_alert(Exception('Health check failed: ' + str(h['warnings'])), 'health_check', NOTIFICATION_EMAIL) if not h['healthy'] and NOTIFICATION_EMAIL else None" >> /var/log/fanbasehq-scraper.log 2>&1 # fanbasehq-scraper-health-check
+0 5 * * * cd PROJECT_ROOT && PROJECT_ROOT/venv/bin/python -c "from services.monitoring_service import MonitoringService; from services.email_service import EmailService; from config.settings import NOTIFICATION_EMAIL; m = MonitoringService(); h = m.check_health(); print(h); EmailService().send_error_alert(Exception('Health check failed: ' + str(h['warnings'])), 'health_check', NOTIFICATION_EMAIL) if not h['healthy'] and NOTIFICATION_EMAIL else None" >> /var/log/fanbasehq-scraper.log 2>&1 # fanbasehq-scraper-health-check
