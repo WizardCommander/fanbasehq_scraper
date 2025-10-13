@@ -5,9 +5,9 @@ Shoe scraper for Caitlin Clark WNBA data - KixStats Integration
 import json
 import logging
 from datetime import date
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 
-from config.settings import CONFIG_DIR, PLAYERS_FILE
+from config.settings import PLAYERS_FILE
 from services.scraper_config import ScraperConfig
 from services.kixstats_service import KixStatsService
 from parsers.shoe_csv_formatter import ShoeCSVFormatter

@@ -6,16 +6,13 @@ import json
 import logging
 import asyncio
 from datetime import date
-from pathlib import Path
 from typing import Dict, List, Optional
 
-from config.settings import CONFIG_DIR, PLAYERS_FILE, TWITTER_ACCOUNTS_FILE
-from utils.roster_cache import lookup_player_team_with_id
+from config.settings import PLAYERS_FILE, TWITTER_ACCOUNTS_FILE
 from services.scraper_config import ScraperConfig
 from services.twitter_search_service import TwitterSearchService
 from services.content_processing_service import ContentProcessingService, ContentType
 from services.result_aggregation_service import ResultAggregationService
-from parsers.ai_parser import AIParser
 from parsers.csv_formatter import MilestoneCSVFormatter
 
 

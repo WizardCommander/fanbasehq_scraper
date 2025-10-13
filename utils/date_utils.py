@@ -3,7 +3,6 @@ Date utility functions for the scraper
 """
 
 from datetime import datetime, date
-from typing import Union
 
 
 def parse_date(date_str: str, strict: bool = True) -> date:

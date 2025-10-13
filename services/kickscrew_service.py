@@ -6,7 +6,6 @@ Rebuilt from historical implementation with enhancements for smart colorway inte
 
 import logging
 import asyncio
-import json
 import urllib.parse
 from datetime import date, datetime
 from typing import Optional

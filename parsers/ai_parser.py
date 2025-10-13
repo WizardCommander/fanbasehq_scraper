@@ -77,7 +77,9 @@ class ShoeData:
     model: str  # "Kobe 6 Protro"
     color_description: str  # "Light Armory Blue"
     date: Optional[date]  # Tweet/post date - for game stats matching
-    release_date: Optional[date]  # Shoe's actual release date - from AI extraction or fallback
+    release_date: Optional[
+        date
+    ]  # Shoe's actual release date - from AI extraction or fallback
     price: str  # "$190" (with currency symbol)
     signature_shoe: bool
     limited_edition: bool
@@ -95,7 +97,7 @@ class ShoeData:
     # Fields that may need fallback services
     has_missing_data: bool = False
     missing_fields: List[str] = None  # List of fields that need fallback
-    
+
     def __post_init__(self):
         if self.missing_fields is None:
             self.missing_fields = []
@@ -610,7 +612,6 @@ ACCEPT Examples:
 - Fashion/outfit breakdowns with brands and prices
 """
 
-
     def parse_shoe_tweet(
         self,
         tweet_text: str,
@@ -672,9 +673,13 @@ ACCEPT Examples:
                 missing_fields.append("performance_features")
 
             # Validate date relationships
-            date_validation_issues = self._validate_shoe_dates(final_date, shoe_release_date)
+            date_validation_issues = self._validate_shoe_dates(
+                final_date, shoe_release_date
+            )
             if date_validation_issues:
-                logger.warning(f"Date validation issues for shoe: {date_validation_issues}")
+                logger.warning(
+                    f"Date validation issues for shoe: {date_validation_issues}"
+                )
 
             return ShoeData(
                 is_shoe_post=result.get("is_shoe_post", False),
@@ -719,14 +724,18 @@ ACCEPT Examples:
         tweet_created_at: Optional[datetime] = None,
     ) -> tuple[Optional[date], str, float]:
         """Resolve the shoe date from AI extraction or fallback to tweet date"""
-        
+
         # Try AI-extracted date first
         if ai_result.get("extracted_date"):
             try:
                 extracted_date = datetime.fromisoformat(
                     ai_result["extracted_date"]
                 ).date()
-                return extracted_date, "tweet_text", ai_result.get("date_confidence", 0.8)
+                return (
+                    extracted_date,
+                    "tweet_text",
+                    ai_result.get("date_confidence", 0.8),
+                )
             except (ValueError, TypeError):
                 logger.debug("Invalid date format from AI extraction")
 
@@ -737,7 +746,9 @@ ACCEPT Examples:
         # No date available
         return None, "none", 0.0
 
-    def _create_shoe_prompt(self, tweet_text: str, target_player: str, tweet_url: str = "") -> str:
+    def _create_shoe_prompt(
+        self, tweet_text: str, target_player: str, tweet_url: str = ""
+    ) -> str:
         """Create prompt for shoe information extraction"""
         return f"""
 Analyze this tweet for basketball shoe information related to {target_player}.
@@ -801,85 +812,99 @@ ACCEPT Examples:
     def _parse_release_date(self, release_date_str: Optional[str]) -> Optional[date]:
         """
         Robust parsing of shoe release dates from various formats
-        
+
         Args:
             release_date_str: Date string from AI extraction
-            
+
         Returns:
             Parsed date object or None if parsing fails
         """
         if not release_date_str or not isinstance(release_date_str, str):
             return None
-            
+
         # Clean the input string
         cleaned_date = release_date_str.strip()
-        if not cleaned_date or cleaned_date.lower() in ['null', 'none', 'unknown', '']:
+        if not cleaned_date or cleaned_date.lower() in ["null", "none", "unknown", ""]:
             return None
-            
+
         # Common date formats to try
         date_formats = [
-            "%Y-%m-%d",        # 2025-10-01 (ISO format)
-            "%m/%d/%Y",        # 10/01/2025 (US format)
-            "%m-%d-%Y",        # 10-01-2025
-            "%B %d, %Y",       # October 1, 2025
-            "%b %d, %Y",       # Oct 1, 2025
-            "%Y/%m/%d",        # 2025/10/01
-            "%d/%m/%Y",        # 01/10/2025 (European format)
-            "%Y.%m.%d",        # 2025.10.01
-            "%Y%m%d",          # 20251001 (compact format)
+            "%Y-%m-%d",  # 2025-10-01 (ISO format)
+            "%m/%d/%Y",  # 10/01/2025 (US format)
+            "%m-%d-%Y",  # 10-01-2025
+            "%B %d, %Y",  # October 1, 2025
+            "%b %d, %Y",  # Oct 1, 2025
+            "%Y/%m/%d",  # 2025/10/01
+            "%d/%m/%Y",  # 01/10/2025 (European format)
+            "%Y.%m.%d",  # 2025.10.01
+            "%Y%m%d",  # 20251001 (compact format)
         ]
-        
+
         for fmt in date_formats:
             try:
                 parsed_date = datetime.strptime(cleaned_date, fmt).date()
-                logger.debug(f"Successfully parsed release date '{release_date_str}' using format '{fmt}'")
+                logger.debug(
+                    f"Successfully parsed release date '{release_date_str}' using format '{fmt}'"
+                )
                 return parsed_date
             except ValueError:
                 continue
-                
+
         # Try ISO format parsing as fallback
         try:
             parsed_date = datetime.fromisoformat(cleaned_date).date()
-            logger.debug(f"Successfully parsed release date '{release_date_str}' using ISO format")
+            logger.debug(
+                f"Successfully parsed release date '{release_date_str}' using ISO format"
+            )
             return parsed_date
         except ValueError:
             pass
-            
-        logger.warning(f"Could not parse release date: '{release_date_str}' - no matching format found")
+
+        logger.warning(
+            f"Could not parse release date: '{release_date_str}' - no matching format found"
+        )
         return None
 
-    def _validate_shoe_dates(self, tweet_date: Optional[date], release_date: Optional[date]) -> List[str]:
+    def _validate_shoe_dates(
+        self, tweet_date: Optional[date], release_date: Optional[date]
+    ) -> List[str]:
         """
         Validate business logic relationships between shoe dates
-        
+
         Args:
             tweet_date: When the tweet was posted
             release_date: When the shoe was released
-            
+
         Returns:
             List of validation issues (empty if no issues)
         """
         issues = []
-        
+
         if not tweet_date and not release_date:
             return issues  # No dates to validate
-            
+
         if tweet_date and release_date:
             # Basic business logic: can't tweet about a shoe before it's released
             # Allow some tolerance for leaks/early announcements (30 days)
             if release_date > tweet_date:
                 days_early = (release_date - tweet_date).days
                 if days_early > 30:  # More than 30 days before release
-                    issues.append(f"Tweet posted {days_early} days before shoe release - possible date error")
-                    
+                    issues.append(
+                        f"Tweet posted {days_early} days before shoe release - possible date error"
+                    )
+
             # Sanity check: very old release dates are probably parsing errors
             if release_date.year < 1980:
-                issues.append(f"Release date {release_date} seems too old - possible parsing error")
-                
+                issues.append(
+                    f"Release date {release_date} seems too old - possible parsing error"
+                )
+
             # Future release dates beyond reasonable horizon
             if release_date.year > datetime.now().year + 5:
-                issues.append(f"Release date {release_date} is too far in future - possible parsing error")
-                
+                issues.append(
+                    f"Release date {release_date} is too far in future - possible parsing error"
+                )
+
         return issues
 
 

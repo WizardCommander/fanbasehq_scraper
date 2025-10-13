@@ -4,17 +4,15 @@ Tunnel Fit scraper for Caitlin Clark WNBA data - Following Existing Architecture
 
 import json
 import logging
-import asyncio
 from datetime import date
-from pathlib import Path
 from typing import Dict, List, Optional
 
-from config.settings import CONFIG_DIR, PLAYERS_FILE, TWITTER_ACCOUNTS_FILE
+from config.settings import PLAYERS_FILE, TWITTER_ACCOUNTS_FILE
 from services.scraper_config import ScraperConfig
 from services.twitter_search_service import TwitterSearchService
 from services.content_processing_service import ContentProcessingService, ContentType
 from services.tunnel_fit_aggregation_service import TunnelFitAggregationService
-from parsers.ai_parser import AIParser, TunnelFitData
+from parsers.ai_parser import TunnelFitData
 from parsers.tunnel_fit_csv_formatter import TunnelFitCSVFormatter
 
 

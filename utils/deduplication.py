@@ -6,7 +6,7 @@ Provides content hashing and similarity matching without API costs
 import re
 import hashlib
 import logging
-from typing import List, Dict, Set, Optional
+from typing import List, Dict
 from fuzzywuzzy import fuzz
 from dataclasses import dataclass
 

@@ -160,12 +160,12 @@ class MonitoringService:
             "scraper_types": scraper_types,
         }
 
-    def check_health(self, days_threshold: int = 3) -> Dict:
+    def check_health(self, days_threshold: int = 7) -> Dict:
         """
         Check scraper health and detect issues
 
         Args:
-            days_threshold: Number of consecutive days with no results to trigger warning
+            days_threshold: Number of consecutive days with no results to trigger warning (default: 7)
 
         Returns:
             Dictionary with health status and warnings
@@ -179,18 +179,18 @@ class MonitoringService:
                 "last_successful_run": None,
             }
 
-        # Get recent metrics (last 7 days)
-        cutoff_date = datetime.now() - timedelta(days=7)
+        # Get recent metrics (last 3 days for activity check)
+        activity_cutoff = datetime.now() - timedelta(days=3)
         recent_metrics = [
             m
             for m in all_metrics
-            if datetime.fromisoformat(m["timestamp"]) > cutoff_date
+            if datetime.fromisoformat(m["timestamp"]) > activity_cutoff
         ]
 
         if not recent_metrics:
             return {
                 "healthy": False,
-                "warnings": [f"No scraper runs in the last 7 days - check cron jobs"],
+                "warnings": [f"No scraper runs in the last 3 days - check cron jobs"],
                 "last_successful_run": None,
             }
 
@@ -217,7 +217,7 @@ class MonitoringService:
         error_rate = self._calculate_error_rate(recent_metrics)
         if error_rate > 0.5:  # More than 50% failures
             warnings.append(
-                f"High error rate: {error_rate*100:.1f}% of runs failed in last 7 days"
+                f"High error rate: {error_rate*100:.1f}% of runs failed in last 3 days"
             )
 
         # Check for specific scraper types not running
@@ -227,7 +227,7 @@ class MonitoringService:
 
         if missing_types:
             warnings.append(
-                f"Missing scraper types: {', '.join(missing_types)} have not run in 7 days"
+                f"Missing scraper types: {', '.join(missing_types)} have not run in 3 days"
             )
 
         healthy = len(warnings) == 0

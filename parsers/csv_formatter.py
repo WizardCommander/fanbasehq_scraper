@@ -7,7 +7,7 @@ import json
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List, Dict
 
 from utils.twitterapi_client import ScrapedTweet
 from parsers.ai_parser import MilestoneData
