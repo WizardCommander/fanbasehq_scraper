@@ -8,12 +8,24 @@ import argparse
 import asyncio
 import sys
 import logging
+import os
 from datetime import date
 from pathlib import Path
 
 # Add the project root to Python path
 PROJECT_ROOT = Path(__file__).parent
 sys.path.insert(0, str(PROJECT_ROOT))
+
+# Import VenvManager after path setup
+from utils.venv_manager import VenvManager
+
+# Ensure virtual environment is ready before proceeding
+try:
+    venv_manager = VenvManager(project_root=PROJECT_ROOT)
+    venv_manager.ensure_venv_ready()
+except Exception as e:
+    print(f"ERROR: Virtual environment setup failed: {e}")
+    sys.exit(1)
 
 # Fix Python 3.12 compatibility for aiohttp
 import fix_collections

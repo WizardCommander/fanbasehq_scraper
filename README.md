@@ -51,6 +51,8 @@ python main.py --player "caitlin clark" --type tunnel-fits --output custom_fits.
 python main.py --player "caitlin clark" --type milestones --dry-run
 ```
 
+> 💡 **Auto Virtual Environment**: The scraper automatically detects and activates the virtual environment if needed. No need to manually run `source venv/bin/activate` first!
+
 ## 📁 Key Files
 
 - **config/.env** - Your API keys and email settings

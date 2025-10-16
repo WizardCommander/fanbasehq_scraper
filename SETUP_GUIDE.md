@@ -281,7 +281,7 @@ Run scrapers manually when needed:
 
 ```bash
 cd /opt/fanbasehq-scraper
-source venv/bin/activate
+# No need to activate venv manually - main.py does it automatically!
 
 # Scrape yesterday's milestones
 python main.py --player "caitlin clark" --type milestones \
