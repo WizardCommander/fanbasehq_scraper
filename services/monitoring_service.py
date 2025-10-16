@@ -202,15 +202,15 @@ class MonitoringService:
                 "timestamp"
             ]
 
-        # Check for consecutive days with no results
+        # Check for consecutive days with failed runs (not zero results)
         warnings = []
-        consecutive_zero_days = self._check_consecutive_zero_results(
+        consecutive_failure_days = self._check_consecutive_failed_runs(
             recent_metrics, days_threshold
         )
 
-        if consecutive_zero_days >= days_threshold:
+        if consecutive_failure_days >= days_threshold:
             warnings.append(
-                f"{consecutive_zero_days} consecutive days with 0 items found - check scraper configuration"
+                f"{consecutive_failure_days} consecutive days with failed scraper runs - check scraper configuration"
             )
 
         # Check for high error rates
@@ -232,12 +232,19 @@ class MonitoringService:
 
         healthy = len(warnings) == 0
 
+        # Count successful runs with zero items (normal behavior)
+        successful_zero_items = [
+            m for m in recent_metrics if m["success"] and m["items_found"] == 0
+        ]
+
         return {
             "healthy": healthy,
             "warnings": warnings,
             "last_successful_run": last_successful,
             "recent_runs": len(recent_metrics),
             "error_rate": round(error_rate, 2),
+            "successful_zero_item_runs": len(successful_zero_items),
+            "note": "Zero items found in successful runs is normal when no new data is available",
         }
 
     def _load_metrics(self) -> List[Dict]:
@@ -272,36 +279,37 @@ class MonitoringService:
         except Exception as e:
             logger.error(f"Failed to save metrics: {e}")
 
-    def _check_consecutive_zero_results(
+    def _check_consecutive_failed_runs(
         self, metrics: List[Dict], threshold: int
     ) -> int:
-        """Check for consecutive days with zero results"""
-        # Group metrics by date
-        dates_with_results = {}
+        """Check for consecutive days with only failed runs (not zero results)"""
+        # Group metrics by date and check if all runs failed
+        dates_with_failures = {}
         for metric in metrics:
             metric_date = datetime.fromisoformat(metric["timestamp"]).date()
-            if metric_date not in dates_with_results:
-                dates_with_results[metric_date] = []
-            dates_with_results[metric_date].append(metric["items_found"])
+            if metric_date not in dates_with_failures:
+                dates_with_failures[metric_date] = []
+            dates_with_failures[metric_date].append(metric["success"])
 
-        # Check consecutive days with zero results
-        consecutive_zeros = 0
+        # Check consecutive days with all failed runs
+        consecutive_failures = 0
         max_consecutive = 0
 
         # Check last N days
         for i in range(threshold + 1):
             check_date = (datetime.now() - timedelta(days=i)).date()
-            if check_date in dates_with_results:
-                day_total = sum(dates_with_results[check_date])
-                if day_total == 0:
-                    consecutive_zeros += 1
-                    max_consecutive = max(max_consecutive, consecutive_zeros)
+            if check_date in dates_with_failures:
+                # Check if ALL runs on this day failed
+                day_successes = dates_with_failures[check_date]
+                if not any(day_successes):  # All runs failed
+                    consecutive_failures += 1
+                    max_consecutive = max(max_consecutive, consecutive_failures)
                 else:
-                    consecutive_zeros = 0
+                    consecutive_failures = 0
             else:
-                # No data for this day - treat as zero
-                consecutive_zeros += 1
-                max_consecutive = max(max_consecutive, consecutive_zeros)
+                # No data for this day - treat as failure (scraper didn't run)
+                consecutive_failures += 1
+                max_consecutive = max(max_consecutive, consecutive_failures)
 
         return max_consecutive
 
