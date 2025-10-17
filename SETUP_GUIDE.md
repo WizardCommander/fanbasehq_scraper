@@ -1,7 +1,8 @@
 # WNBA Scraper - Setup Guide
 
-Once set up, you'll receive **daily emails at 3:30 AM** with:
-- ✅ **milestones.csv** - Records, achievements, stat milestones
+Once set up, you'll receive **daily emails at 3:00 AM** with:
+- ✅ **milestones.csv** - Records, achi
+evements, stat milestones
 - ✅ **shoes.csv** - Game shoes with performance stats and prices
 - ✅ **tunnel_fits.csv** - Outfit details with shopping links
 - ✅ **Summary report** - How many items found, processing time
@@ -25,7 +26,7 @@ Once set up, you'll receive **daily emails at 3:30 AM** with:
 
 ---
 
-## 1. Prerequisites & What You Need
+## Prerequisites & What You Need
 
 ### What You Need (Get These First)
 
@@ -55,7 +56,7 @@ Once set up, you'll receive **daily emails at 3:30 AM** with:
 
 ---
 
-## 2. Server Setup (DigitalOcean)
+## Server Setup (DigitalOcean)
 
 ### Step 1: Create Droplet
 
@@ -79,49 +80,21 @@ apt-get update && apt-get upgrade -y
 # Install prerequisites
 apt-get install -y git python3 python3-pip python3-venv
 
-# Create application directory
-mkdir -p /opt/fanbasehq-scraper
-cd /opt/fanbasehq-scraper
-
-# Clone repository
-git clone <your-repo-url> .
 ```
-
-### Step 3: Run Setup Script
-
-```bash
-cd /opt/fanbasehq-scraper
-chmod +x deployment/setup.sh deployment/daily_scraper.sh
-./deployment/setup.sh
-```
-
-Follow the prompts to:
-- Configure environment variables
-- Test email delivery
-- Install cron jobs
-- Run test scrape
-
----
 
 ## 3. Install & Configure
-
-### 3.1 One-Command Installation
 
 **Now that you have a server, let's install the scraper:**
 
 ```bash
-# SSH into your server (replace with your actual IP)
-ssh root@your-server-ip
-
-# Install prerequisites (REQUIRED)
-apt-get update && apt-get upgrade -y
-apt-get install -y git python3 python3-pip python3-venv
-
 # Clone the repository
-git clone <your-repo-url> /opt/fanbasehq-scraper
+cd /opt
+
+git clone https://github.com/WizardCommander/fanbasehq_scraper /opt/fanbasehq-scraper
 cd /opt/fanbasehq-scraper
 
 # Run setup script
+chmod +x deployment/daily_scraper.sh
 chmod +x deployment/setup.sh
 ./deployment/setup.sh
 ```
@@ -157,11 +130,12 @@ OPENAI_API_KEY=sk-your-openai-api-key-here
 # TwitterAPI.io Key
 TWITTER_API_KEY=your-twitterapi-key-here
 
-# SMTP Settings (Gmail example)
-SMTP_HOST=smtp.gmail.com
+# SMTP Settings (sendgrid example)
+SMTP_HOST=smtp.sendgrid.net
 SMTP_PORT=587
 SMTP_USER=your-email@gmail.com
 SMTP_PASSWORD=your-app-specific-password
+SMTP_FROM_EMAIL=your-verified-sender@domain.com
 
 # Notification Email
 NOTIFICATION_EMAIL=recipient@example.com
@@ -281,7 +255,12 @@ Run scrapers manually when needed:
 
 ```bash
 cd /opt/fanbasehq-scraper
-# No need to activate venv manually - main.py does it automatically!
+# Virtual environment is automatically managed - no need to activate manually!
+# The scraper will automatically:
+# ✅ Detect if venv is active
+# ✅ Activate venv if needed
+# ✅ Install missing dependencies
+# ✅ Restart with proper environment
 
 # Scrape yesterday's milestones
 python main.py --player "caitlin clark" --type milestones \
@@ -355,7 +334,7 @@ grep CRON /var/log/syslog
 
 ```bash
 cd /opt/fanbasehq-scraper
-source venv/bin/activate
+# Virtual environment automatically managed - no manual activation needed!
 
 python -c "
 from services.monitoring_service import MonitoringService
@@ -377,7 +356,7 @@ print(json.dumps(health, indent=2))
 
 ```bash
 cd /opt/fanbasehq-scraper
-source venv/bin/activate
+# Virtual environment automatically managed - no manual activation needed!
 
 python -c "
 from services.email_service import EmailService
@@ -718,8 +697,8 @@ To add a new content type (e.g., "injuries", "awards"):
 ### Common Commands
 
 ```bash
-# Start scraper manually
-cd /opt/fanbasehq-scraper && source venv/bin/activate
+# Start scraper manually (venv automatically managed)
+cd /opt/fanbasehq-scraper
 python main.py --player "caitlin clark" --type milestones
 
 # Check logs
@@ -728,10 +707,10 @@ tail -f /var/log/fanbasehq-scraper.log
 # View cron jobs
 crontab -l
 
-# Test email
+# Test email (venv automatically managed)
 python -c "from services.email_service import EmailService; EmailService().send_test_email()"
 
-# Check health
+# Check health (venv automatically managed)
 python -c "from services.monitoring_service import MonitoringService; print(MonitoringService().check_health())"
 ```
 
@@ -755,3 +734,4 @@ python -c "from services.monitoring_service import MonitoringService; print(Moni
 ---
 
 **Last Updated**: 2025-10-16
+**Virtual Environment**: Now automatically managed by VenvManager system
