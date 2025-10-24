@@ -16,6 +16,9 @@ python-dateutil>=2.8.0
 # Sports data for individual player game logs
 sportsdataverse>=0.0.39
 
+# XGBoost pinned to avoid binary format incompatibility with sportsdataverse
+xgboost<3.0,>=1.7.0
+
 # HTML scraping no longer needed - using ESPN API
 
 # Text similarity for semantic deduplication

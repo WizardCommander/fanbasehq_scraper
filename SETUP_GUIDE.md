@@ -437,6 +437,25 @@ playwright install chromium
 playwright install-deps chromium
 ```
 
+#### Issue: XGBoost binary format error (sportsdataverse)
+
+**Error Message**:
+```
+XGBoostError: Failed to load model... The binary format has been deprecated in 1.6 and removed in 3.1
+```
+
+**Fix**:
+```bash
+# Downgrade xgboost to compatible version
+source venv/bin/activate
+pip install 'xgboost<3.0,>=1.7.0'
+
+# Or reinstall all dependencies (recommended)
+pip install -r requirements.txt --force-reinstall
+```
+
+**Note**: This is a known compatibility issue between `sportsdataverse` and the latest `xgboost` versions. The requirements.txt now pins `xgboost<3.0` to prevent this issue.
+
 ### 5.5 Health Check Alerts
 
 If you receive a health check alert email, it means:
