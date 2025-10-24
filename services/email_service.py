@@ -19,6 +19,7 @@ from config.settings import (
     SMTP_USER,
     SMTP_PASSWORD,
     SMTP_FROM_EMAIL,
+    SMTP_TIMEOUT,
     NOTIFICATION_EMAIL,
 )
 
@@ -35,12 +36,14 @@ class EmailService:
         smtp_user: Optional[str] = None,
         smtp_password: Optional[str] = None,
         smtp_from_email: Optional[str] = None,
+        smtp_timeout: Optional[int] = None,
     ):
         self.smtp_host = smtp_host or SMTP_HOST
         self.smtp_port = smtp_port or SMTP_PORT
         self.smtp_user = smtp_user or SMTP_USER
         self.smtp_password = smtp_password or SMTP_PASSWORD
         self.smtp_from_email = smtp_from_email or SMTP_FROM_EMAIL or self.smtp_user
+        self.smtp_timeout = smtp_timeout or SMTP_TIMEOUT
 
         if not all([self.smtp_user, self.smtp_password]):
             logger.warning(
@@ -214,10 +217,14 @@ class EmailService:
             # Use SSL (port 465) or TLS (port 587) based on port number
             if self.smtp_port == 465:
                 # SSL connection for port 465
-                server = smtplib.SMTP_SSL(self.smtp_host, self.smtp_port, timeout=30)
+                server = smtplib.SMTP_SSL(
+                    self.smtp_host, self.smtp_port, timeout=self.smtp_timeout
+                )
             else:
                 # TLS connection for port 587
-                server = smtplib.SMTP(self.smtp_host, self.smtp_port, timeout=30)
+                server = smtplib.SMTP(
+                    self.smtp_host, self.smtp_port, timeout=self.smtp_timeout
+                )
                 server.starttls()
 
             server.login(self.smtp_user, self.smtp_password)

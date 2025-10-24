@@ -74,9 +74,16 @@ CLIENT_ORIGINAL_SUBMISSION_ID = ""  # Blank as requested
 # Email Configuration (SMTP)
 SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
-SMTP_USER = os.getenv("SMTP_USER", "")  # Authentication username (e.g., "apikey" for SendGrid)
+SMTP_USER = os.getenv(
+    "SMTP_USER", ""
+)  # Authentication username (e.g., "apikey" for SendGrid)
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
-SMTP_FROM_EMAIL = os.getenv("SMTP_FROM_EMAIL", "")  # FROM address (must be verified sender)
+SMTP_FROM_EMAIL = os.getenv(
+    "SMTP_FROM_EMAIL", ""
+)  # FROM address (must be verified sender)
+SMTP_TIMEOUT = int(
+    os.getenv("SMTP_TIMEOUT", "120")
+)  # SMTP connection timeout in seconds (120s for attachments)
 NOTIFICATION_EMAIL = os.getenv("NOTIFICATION_EMAIL", "")
 
 # Monitoring Configuration
