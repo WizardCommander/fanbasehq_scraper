@@ -1,25 +1,30 @@
 """
 Email Service
-Sends scraper results and alerts via email
+Sends scraper results and alerts via email using SendGrid HTTP API
 """
 
 import logging
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from email.mime.base import MIMEBase
-from email import encoders
+import base64
 from pathlib import Path
 from typing import List, Dict, Optional
 from datetime import datetime
 
+from sendgrid import SendGridAPIClient
+from sendgrid.helpers.mail import (
+    Mail,
+    Email,
+    To,
+    Content,
+    Attachment,
+    FileContent,
+    FileName,
+    FileType,
+    Disposition,
+)
+
 from config.settings import (
-    SMTP_HOST,
-    SMTP_PORT,
-    SMTP_USER,
-    SMTP_PASSWORD,
-    SMTP_FROM_EMAIL,
-    SMTP_TIMEOUT,
+    SENDGRID_API_KEY,
+    SENDGRID_FROM_EMAIL,
     NOTIFICATION_EMAIL,
 )
 
@@ -27,27 +32,24 @@ logger = logging.getLogger(__name__)
 
 
 class EmailService:
-    """Service for sending scraper results and alerts via email"""
+    """Service for sending scraper results and alerts via email using SendGrid HTTP API"""
 
     def __init__(
         self,
-        smtp_host: Optional[str] = None,
-        smtp_port: Optional[int] = None,
-        smtp_user: Optional[str] = None,
-        smtp_password: Optional[str] = None,
-        smtp_from_email: Optional[str] = None,
-        smtp_timeout: Optional[int] = None,
+        api_key: Optional[str] = None,
+        from_email: Optional[str] = None,
     ):
-        self.smtp_host = smtp_host or SMTP_HOST
-        self.smtp_port = smtp_port or SMTP_PORT
-        self.smtp_user = smtp_user or SMTP_USER
-        self.smtp_password = smtp_password or SMTP_PASSWORD
-        self.smtp_from_email = smtp_from_email or SMTP_FROM_EMAIL or self.smtp_user
-        self.smtp_timeout = smtp_timeout or SMTP_TIMEOUT
+        self.api_key = api_key or SENDGRID_API_KEY
+        self.from_email = from_email or SENDGRID_FROM_EMAIL
 
-        if not all([self.smtp_user, self.smtp_password]):
+        if not self.api_key:
             logger.warning(
-                "Email service initialized without credentials - emails will fail"
+                "Email service initialized without SendGrid API key - emails will fail"
+            )
+
+        if not self.from_email:
+            logger.warning(
+                "Email service initialized without from_email - emails will fail"
             )
 
     def send_daily_results(
@@ -58,7 +60,7 @@ class EmailService:
         subject: Optional[str] = None,
     ) -> bool:
         """
-        Send daily scraper results with CSV attachments
+        Send daily scraper results with CSV attachments via SendGrid HTTP API
 
         Args:
             csv_files: List of CSV file paths to attach
@@ -83,10 +85,14 @@ class EmailService:
             html_body = self._generate_results_html(metrics, csv_files)
             logger.info(f"HTML body generated: {len(html_body)} bytes")
 
-            # Create message
-            logger.info("Creating MIME multipart message...")
-            msg = self._create_multipart_message(subject, html_body, recipient)
-            logger.info("MIME message created")
+            # Create SendGrid message
+            logger.info("Creating SendGrid Mail object...")
+            message = Mail(
+                from_email=Email(self.from_email),
+                to_emails=To(recipient),
+                subject=subject,
+                html_content=Content("text/html", html_body),
+            )
 
             # Attach CSV files
             logger.info(f"Attaching {len(csv_files)} CSV files...")
@@ -96,13 +102,13 @@ class EmailService:
                     continue
 
                 logger.info(f"Attaching file {i}/{len(csv_files)}: {csv_file.name}")
-                self._attach_file(msg, csv_file)
+                self._attach_file_to_sendgrid(message, csv_file)
                 logger.info(f"File {i}/{len(csv_files)} attached successfully")
 
             logger.info("All attachments complete, preparing to send...")
 
-            # Send email
-            result = self._send_email(msg, recipient)
+            # Send email via SendGrid API
+            result = self._send_via_sendgrid(message, recipient)
             logger.info(f"Send result: {result}")
             return result
 
@@ -118,7 +124,7 @@ class EmailService:
         additional_context: Optional[Dict] = None,
     ) -> bool:
         """
-        Send error alert email
+        Send error alert email via SendGrid HTTP API
 
         Args:
             error: Exception that occurred
@@ -138,11 +144,16 @@ class EmailService:
                 error, scraper_type, additional_context
             )
 
-            # Create message
-            msg = self._create_multipart_message(subject, html_body, recipient)
+            # Create SendGrid message
+            message = Mail(
+                from_email=Email(self.from_email),
+                to_emails=To(recipient),
+                subject=subject,
+                html_content=Content("text/html", html_body),
+            )
 
-            # Send email
-            return self._send_email(msg, recipient)
+            # Send email via SendGrid API
+            return self._send_via_sendgrid(message, recipient)
 
         except Exception as e:
             logger.error(f"Failed to send error alert email: {e}")
@@ -150,7 +161,7 @@ class EmailService:
 
     def send_test_email(self, recipient: Optional[str] = None) -> bool:
         """
-        Send test email to verify SMTP configuration
+        Send test email to verify SendGrid API configuration
 
         Args:
             recipient: Email address to send to (defaults to NOTIFICATION_EMAIL)
@@ -170,7 +181,7 @@ class EmailService:
               <body>
                 <h2>✅ Email Configuration Test</h2>
                 <p>This is a test email from the FanbaseHQ scraper.</p>
-                <p>If you received this email, your SMTP configuration is working correctly.</p>
+                <p>If you received this email, your SendGrid API configuration is working correctly.</p>
                 <hr>
                 <p style="color: #666; font-size: 12px;">
                   Sent at {timestamp}
@@ -181,137 +192,79 @@ class EmailService:
                 timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             )
 
-            msg = self._create_multipart_message(subject, html_body, recipient)
-            return self._send_email(msg, recipient)
+            # Create SendGrid message
+            message = Mail(
+                from_email=Email(self.from_email),
+                to_emails=To(recipient),
+                subject=subject,
+                html_content=Content("text/html", html_body),
+            )
+
+            return self._send_via_sendgrid(message, recipient)
 
         except Exception as e:
             logger.error(f"Failed to send test email: {e}")
             return False
 
-    def _create_multipart_message(
-        self, subject: str, html_body: str, recipient: str
-    ) -> MIMEMultipart:
-        """Create a multipart MIME message"""
-        msg = MIMEMultipart()
-        msg["From"] = self.smtp_from_email
-        msg["To"] = recipient
-        msg["Subject"] = subject
-
-        # Attach HTML body
-        msg.attach(MIMEText(html_body, "html"))
-
-        return msg
-
-    def _attach_file(self, msg: MIMEMultipart, file_path: Path):
-        """Attach a file to a MIME message"""
+    def _attach_file_to_sendgrid(self, message: Mail, file_path: Path):
+        """Attach a file to a SendGrid Mail object"""
         try:
             logger.debug(f"Reading file: {file_path}")
             with open(file_path, "rb") as f:
                 file_data = f.read()
             logger.debug(f"File read complete: {len(file_data)} bytes")
 
-            logger.debug("Creating MIME part...")
-            part = MIMEBase("application", "octet-stream")
-            part.set_payload(file_data)
-            logger.debug("Payload set")
-
             logger.debug("Encoding to base64...")
-            encoders.encode_base64(part)
+            encoded_file = base64.b64encode(file_data).decode()
             logger.debug("Base64 encoding complete")
 
-            logger.debug("Adding headers...")
-            part.add_header(
-                "Content-Disposition",
-                f"attachment; filename= {file_path.name}",
+            logger.debug("Creating SendGrid Attachment...")
+            attachment = Attachment(
+                FileContent(encoded_file),
+                FileName(file_path.name),
+                FileType("text/csv"),
+                Disposition("attachment"),
             )
-            logger.debug("Headers added")
+            logger.debug("Attachment created")
 
-            logger.debug("Attaching part to message...")
-            msg.attach(part)
+            logger.debug("Adding attachment to message...")
+            message.add_attachment(attachment)
             logger.debug(f"Attached file: {file_path.name}")
 
         except Exception as e:
             logger.error(f"Failed to attach file {file_path}: {e}", exc_info=True)
 
-    def _send_email(self, msg: MIMEMultipart, recipient: str) -> bool:
-        """Send email via SMTP"""
-        import socket
-
-        # Save original socket timeout
-        original_timeout = socket.getdefaulttimeout()
-        server = None
-
+    def _send_via_sendgrid(self, message: Mail, recipient: str) -> bool:
+        """Send email via SendGrid HTTP API"""
         try:
-            logger.info(
-                f"Sending email to {recipient} via {self.smtp_host}:{self.smtp_port}"
-            )
-            logger.info(f"Using SMTP timeout: {self.smtp_timeout}s")
+            logger.info(f"Sending email to {recipient} via SendGrid API")
 
-            # Set global socket timeout for ALL socket operations
-            # This ensures sendmail() operation also respects the timeout
-            logger.info("Setting global socket timeout...")
-            socket.setdefaulttimeout(self.smtp_timeout)
-            logger.info(f"Global socket timeout set to {self.smtp_timeout}s")
+            if not self.api_key:
+                logger.error("SendGrid API key not configured")
+                return False
 
-            # Use SSL (port 465) or TLS (port 587) based on port number
-            if self.smtp_port == 465:
-                # SSL connection for port 465
-                logger.info("Creating SMTP_SSL connection...")
-                server = smtplib.SMTP_SSL(
-                    self.smtp_host, self.smtp_port, timeout=self.smtp_timeout
-                )
-                logger.info("SMTP_SSL connection established")
+            logger.info("Creating SendGrid API client...")
+            sg = SendGridAPIClient(self.api_key)
+
+            logger.info("Sending email via HTTPS...")
+            response = sg.send(message)
+
+            logger.info(f"SendGrid response status: {response.status_code}")
+            logger.debug(f"SendGrid response body: {response.body}")
+            logger.debug(f"SendGrid response headers: {response.headers}")
+
+            if response.status_code in [200, 201, 202]:
+                logger.info(f"Email sent successfully to {recipient}")
+                return True
             else:
-                # TLS connection for port 587
-                logger.info("Creating SMTP connection...")
-                server = smtplib.SMTP(
-                    self.smtp_host, self.smtp_port, timeout=self.smtp_timeout
+                logger.error(
+                    f"SendGrid returned unexpected status: {response.status_code}"
                 )
-                logger.info("SMTP connection established, starting TLS...")
-                server.starttls()
-                logger.info("TLS handshake complete")
+                return False
 
-            logger.info("Attempting login...")
-            server.login(self.smtp_user, self.smtp_password)
-            logger.info("Login successful")
-
-            logger.info("Converting message to string...")
-            text = msg.as_string()
-            logger.info(f"Message size: {len(text)} bytes")
-
-            logger.info("Calling sendmail()...")
-            server.sendmail(self.smtp_from_email, recipient, text)
-            logger.info("sendmail() complete")
-
-            logger.info("Closing connection...")
-            server.quit()
-            server = None  # Mark as closed
-            logger.info("Connection closed")
-
-            logger.info(f"Email sent successfully to {recipient}")
-            return True
-
-        except smtplib.SMTPAuthenticationError:
-            logger.error("SMTP authentication failed - check credentials")
-            return False
-        except smtplib.SMTPException as e:
-            logger.error(f"SMTP error: {e}")
-            return False
-        except socket.timeout as e:
-            logger.error(f"SMTP operation timed out after {self.smtp_timeout}s: {e}")
-            return False
         except Exception as e:
-            logger.error(f"Failed to send email: {e}")
+            logger.error(f"Failed to send email via SendGrid: {e}", exc_info=True)
             return False
-        finally:
-            # Restore original socket timeout
-            socket.setdefaulttimeout(original_timeout)
-            # Ensure server connection is closed
-            if server:
-                try:
-                    server.quit()
-                except Exception:
-                    pass
 
     def _generate_results_html(self, metrics: Dict, csv_files: List[Path]) -> str:
         """Generate HTML body for results email"""

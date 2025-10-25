@@ -71,20 +71,21 @@ CLIENT_SUBMITTER_EMAIL = "sage3313@gmail.com"
 CLIENT_USER_ID = ""  # Blank as requested
 CLIENT_ORIGINAL_SUBMISSION_ID = ""  # Blank as requested
 
-# Email Configuration (SMTP)
-SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
-SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
-SMTP_USER = os.getenv(
-    "SMTP_USER", ""
-)  # Authentication username (e.g., "apikey" for SendGrid)
-SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
-SMTP_FROM_EMAIL = os.getenv(
-    "SMTP_FROM_EMAIL", ""
-)  # FROM address (must be verified sender)
-SMTP_TIMEOUT = int(
-    os.getenv("SMTP_TIMEOUT", "120")
-)  # SMTP connection timeout in seconds (120s for attachments)
+# Email Configuration
+# SendGrid HTTP API (recommended - uses HTTPS port 443, no blocking issues)
+SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY", "")
+SENDGRID_FROM_EMAIL = os.getenv(
+    "SENDGRID_FROM_EMAIL", ""
+)  # FROM address (must be verified sender in SendGrid)
 NOTIFICATION_EMAIL = os.getenv("NOTIFICATION_EMAIL", "")
+
+# Legacy SMTP Configuration (deprecated - use SendGrid API instead)
+SMTP_HOST = os.getenv("SMTP_HOST", "smtp.sendgrid.net")
+SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USER = os.getenv("SMTP_USER", "")
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
+SMTP_FROM_EMAIL = os.getenv("SMTP_FROM_EMAIL", "")
+SMTP_TIMEOUT = int(os.getenv("SMTP_TIMEOUT", "120"))
 
 # Monitoring Configuration
 ENABLE_EMAIL_DELIVERY = os.getenv("ENABLE_EMAIL_DELIVERY", "true").lower() == "true"
