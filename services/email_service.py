@@ -209,10 +209,21 @@ class EmailService:
 
     def _send_email(self, msg: MIMEMultipart, recipient: str) -> bool:
         """Send email via SMTP"""
+        import socket
+
+        # Save original socket timeout
+        original_timeout = socket.getdefaulttimeout()
+        server = None
+
         try:
             logger.info(
                 f"Sending email to {recipient} via {self.smtp_host}:{self.smtp_port}"
             )
+            logger.info(f"Using SMTP timeout: {self.smtp_timeout}s")
+
+            # Set global socket timeout for ALL socket operations
+            # This ensures sendmail() operation also respects the timeout
+            socket.setdefaulttimeout(self.smtp_timeout)
 
             # Use SSL (port 465) or TLS (port 587) based on port number
             if self.smtp_port == 465:
@@ -231,6 +242,7 @@ class EmailService:
             text = msg.as_string()
             server.sendmail(self.smtp_from_email, recipient, text)
             server.quit()
+            server = None  # Mark as closed
 
             logger.info(f"Email sent successfully to {recipient}")
             return True
@@ -241,9 +253,21 @@ class EmailService:
         except smtplib.SMTPException as e:
             logger.error(f"SMTP error: {e}")
             return False
+        except socket.timeout as e:
+            logger.error(f"SMTP operation timed out after {self.smtp_timeout}s: {e}")
+            return False
         except Exception as e:
             logger.error(f"Failed to send email: {e}")
             return False
+        finally:
+            # Restore original socket timeout
+            socket.setdefaulttimeout(original_timeout)
+            # Ensure server connection is closed
+            if server:
+                try:
+                    server.quit()
+                except Exception:
+                    pass
 
     def _generate_results_html(self, metrics: Dict, csv_files: List[Path]) -> str:
         """Generate HTML body for results email"""
