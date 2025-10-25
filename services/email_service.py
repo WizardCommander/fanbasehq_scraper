@@ -70,30 +70,44 @@ class EmailService:
             True if email sent successfully, False otherwise
         """
         try:
+            logger.info("=== Starting send_daily_results ===")
+
             # Generate subject
             if not subject:
                 date_str = datetime.now().strftime("%Y-%m-%d")
                 subject = f"FanbaseHQ Scraper Results - {date_str}"
+            logger.info(f"Subject generated: {subject}")
 
             # Generate HTML body
+            logger.info("Generating HTML body...")
             html_body = self._generate_results_html(metrics, csv_files)
+            logger.info(f"HTML body generated: {len(html_body)} bytes")
 
             # Create message
+            logger.info("Creating MIME multipart message...")
             msg = self._create_multipart_message(subject, html_body, recipient)
+            logger.info("MIME message created")
 
             # Attach CSV files
-            for csv_file in csv_files:
+            logger.info(f"Attaching {len(csv_files)} CSV files...")
+            for i, csv_file in enumerate(csv_files, 1):
                 if not csv_file.exists():
                     logger.warning(f"CSV file not found: {csv_file}")
                     continue
 
+                logger.info(f"Attaching file {i}/{len(csv_files)}: {csv_file.name}")
                 self._attach_file(msg, csv_file)
+                logger.info(f"File {i}/{len(csv_files)} attached successfully")
+
+            logger.info("All attachments complete, preparing to send...")
 
             # Send email
-            return self._send_email(msg, recipient)
+            result = self._send_email(msg, recipient)
+            logger.info(f"Send result: {result}")
+            return result
 
         except Exception as e:
-            logger.error(f"Failed to send daily results email: {e}")
+            logger.error(f"Failed to send daily results email: {e}", exc_info=True)
             return False
 
     def send_error_alert(
@@ -191,21 +205,33 @@ class EmailService:
     def _attach_file(self, msg: MIMEMultipart, file_path: Path):
         """Attach a file to a MIME message"""
         try:
+            logger.debug(f"Reading file: {file_path}")
             with open(file_path, "rb") as f:
-                part = MIMEBase("application", "octet-stream")
-                part.set_payload(f.read())
+                file_data = f.read()
+            logger.debug(f"File read complete: {len(file_data)} bytes")
 
+            logger.debug("Creating MIME part...")
+            part = MIMEBase("application", "octet-stream")
+            part.set_payload(file_data)
+            logger.debug("Payload set")
+
+            logger.debug("Encoding to base64...")
             encoders.encode_base64(part)
+            logger.debug("Base64 encoding complete")
+
+            logger.debug("Adding headers...")
             part.add_header(
                 "Content-Disposition",
                 f"attachment; filename= {file_path.name}",
             )
+            logger.debug("Headers added")
 
+            logger.debug("Attaching part to message...")
             msg.attach(part)
             logger.debug(f"Attached file: {file_path.name}")
 
         except Exception as e:
-            logger.error(f"Failed to attach file {file_path}: {e}")
+            logger.error(f"Failed to attach file {file_path}: {e}", exc_info=True)
 
     def _send_email(self, msg: MIMEMultipart, recipient: str) -> bool:
         """Send email via SMTP"""
@@ -223,26 +249,44 @@ class EmailService:
 
             # Set global socket timeout for ALL socket operations
             # This ensures sendmail() operation also respects the timeout
+            logger.info("Setting global socket timeout...")
             socket.setdefaulttimeout(self.smtp_timeout)
+            logger.info(f"Global socket timeout set to {self.smtp_timeout}s")
 
             # Use SSL (port 465) or TLS (port 587) based on port number
             if self.smtp_port == 465:
                 # SSL connection for port 465
+                logger.info("Creating SMTP_SSL connection...")
                 server = smtplib.SMTP_SSL(
                     self.smtp_host, self.smtp_port, timeout=self.smtp_timeout
                 )
+                logger.info("SMTP_SSL connection established")
             else:
                 # TLS connection for port 587
+                logger.info("Creating SMTP connection...")
                 server = smtplib.SMTP(
                     self.smtp_host, self.smtp_port, timeout=self.smtp_timeout
                 )
+                logger.info("SMTP connection established, starting TLS...")
                 server.starttls()
+                logger.info("TLS handshake complete")
 
+            logger.info("Attempting login...")
             server.login(self.smtp_user, self.smtp_password)
+            logger.info("Login successful")
+
+            logger.info("Converting message to string...")
             text = msg.as_string()
+            logger.info(f"Message size: {len(text)} bytes")
+
+            logger.info("Calling sendmail()...")
             server.sendmail(self.smtp_from_email, recipient, text)
+            logger.info("sendmail() complete")
+
+            logger.info("Closing connection...")
             server.quit()
             server = None  # Mark as closed
+            logger.info("Connection closed")
 
             logger.info(f"Email sent successfully to {recipient}")
             return True
