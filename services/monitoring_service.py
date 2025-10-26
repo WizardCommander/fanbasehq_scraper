@@ -10,6 +10,8 @@ from typing import Dict, List, Optional
 from datetime import datetime, timedelta
 from dataclasses import dataclass, asdict
 
+from config.settings import SCRAPER_TYPES
+
 logger = logging.getLogger(__name__)
 
 
@@ -17,7 +19,7 @@ logger = logging.getLogger(__name__)
 class ScraperRunMetrics:
     """Metrics for a single scraper run"""
 
-    scraper_type: str  # milestone, tunnel_fit, shoe
+    scraper_type: str  # milestones, shoes, tunnel-fits
     timestamp: str
     items_found: int
     tweets_processed: int
@@ -50,7 +52,7 @@ class MonitoringService:
         Log metrics for a scraper run
 
         Args:
-            scraper_type: Type of scraper (milestone, tunnel_fit, shoe)
+            scraper_type: Type of scraper (milestones, shoes, tunnel-fits)
             items_found: Number of items scraped
             tweets_processed: Number of tweets processed
             duration_seconds: Duration of scraper run in seconds
@@ -222,7 +224,7 @@ class MonitoringService:
 
         # Check for specific scraper types not running
         scraper_types_seen = set(m["scraper_type"] for m in recent_metrics)
-        expected_types = {"milestone", "tunnel_fit", "shoe"}
+        expected_types = set(SCRAPER_TYPES)
         missing_types = expected_types - scraper_types_seen
 
         if missing_types:

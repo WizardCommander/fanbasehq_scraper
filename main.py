@@ -34,7 +34,7 @@ from scrapers.milestone_scraper import MilestoneScraper
 from services.email_service import EmailService
 from services.monitoring_service import MonitoringService
 from utils.date_utils import parse_date, validate_date_range
-from config.settings import ENABLE_EMAIL_DELIVERY, NOTIFICATION_EMAIL
+from config.settings import ENABLE_EMAIL_DELIVERY, NOTIFICATION_EMAIL, SCRAPER_TYPES
 import time
 
 # Set up logging
@@ -61,7 +61,7 @@ Examples:
     # Optional arguments with defaults
     parser.add_argument(
         "--type",
-        choices=["milestones", "shoes", "tunnel-fits"],
+        choices=SCRAPER_TYPES,
         default="milestones",
         help="Type of content to scrape (default: milestones)",
     )

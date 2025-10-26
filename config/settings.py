@@ -40,6 +40,9 @@ PLAYERS_FILE = CONFIG_DIR / "players.json"
 DEFAULT_RATE_LIMIT_DELAY = 8  # seconds between requests (free tier limit + buffer)
 MAX_RETRIES = 3
 
+# Scraper Types Configuration
+SCRAPER_TYPES = ["milestones", "shoes", "tunnel-fits"]
+
 # CSV Configuration
 CSV_ENCODING = "utf-8"
 CSV_DATE_FORMAT = "%Y-%m-%d %H:%M:%S.%f%z"
