@@ -21,7 +21,7 @@ TODAY=$(date +%Y-%m-%d)
 echo "========================================="
 echo "FanbaseHQ Daily Scraper"
 echo "Date: $TODAY"
-echo "Scraping date range: $YESTERDAY to $YESTERDAY"
+echo "Scraping date range: $YESTERDAY to $TODAY"
 echo "========================================="
 echo ""
 
@@ -35,7 +35,7 @@ run_scraper() {
         --player "caitlin clark" \
         --type "$SCRAPER_TYPE" \
         --start-date "$YESTERDAY" \
-        --end-date "$YESTERDAY" \
+        --end-date "$TODAY" \
         --limit 100; then
         echo "✓ $SCRAPER_TYPE scraper completed successfully"
     else
