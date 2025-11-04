@@ -1,8 +1,15 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # FanbaseHQ Scraper - Daily Automated Run
-# Orchestrates all 3 scrapers and emails results
+# Runs all scrapers for the last 24 hours and emails results
 
-set -e  # Exit on error
+set -eo pipefail
+
+# ==============================
+# Setup & Environment
+# ==============================
+
+# Set timezone explicitly to prevent UTC offset issues
+export TZ="America/Chicago"
 
 # Get script directory and project root
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -10,51 +17,60 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
 # Activate virtual environment
 source "$PROJECT_ROOT/venv/bin/activate"
+PYTHON="$PROJECT_ROOT/venv/bin/python"
 
-# Change to project directory
-cd "$PROJECT_ROOT"
+# Logging (stored under project_root/logs)
+mkdir -p "$PROJECT_ROOT/logs"
+LOG_FILE="$PROJECT_ROOT/logs/scrape_$(date +%F).log"
+exec > >(tee -a "$LOG_FILE") 2>&1
 
-# Calculate date range (yesterday's data)
-YESTERDAY=$(date -d "yesterday" +%Y-%m-%d)
-TODAY=$(date +%Y-%m-%d)
+# ==============================
+# Date Range (Last 24 Hours)
+# ==============================
+START=$(date -d "24 hours ago" +%Y-%m-%dT%H:%M:%S)
+END=$(date +%Y-%m-%dT%H:%M:%S)
 
 echo "========================================="
 echo "FanbaseHQ Daily Scraper"
-echo "Date: $TODAY"
-echo "Scraping date range: $YESTERDAY to $TODAY"
+echo "Run Date: $(date)"
+echo "Scraping range: $START → $END"
 echo "========================================="
 echo ""
 
-# Function to run scraper with error handling
+# ==============================
+# Scraper Function
+# ==============================
 run_scraper() {
-    SCRAPER_TYPE=$1
-    echo "Running $SCRAPER_TYPE scraper..."
+    local SCRAPER_TYPE=$1
+    echo "$(date '+%F %T') - Running $SCRAPER_TYPE scraper..."
     echo "-----------------------------------"
 
-    if python main.py \
+    if "$PYTHON" "$PROJECT_ROOT/main.py" \
         --player "caitlin clark" \
         --type "$SCRAPER_TYPE" \
-        --start-date "$YESTERDAY" \
-        --end-date "$TODAY" \
+        --start-date "$START" \
+        --end-date "$END" \
         --limit 100; then
         echo "✓ $SCRAPER_TYPE scraper completed successfully"
     else
         echo "✗ $SCRAPER_TYPE scraper failed"
         return 1
     fi
-
     echo ""
 }
 
-# Track failures
-FAILED_SCRAPERS=()
+# ==============================
+# Run All Scrapers
+# ==============================
+declare -a FAILED_SCRAPERS=()
 
-# Run all 3 scrapers
 run_scraper "milestones" || FAILED_SCRAPERS+=("milestones")
 run_scraper "shoes" || FAILED_SCRAPERS+=("shoes")
 run_scraper "tunnel-fits" || FAILED_SCRAPERS+=("tunnel-fits")
 
+# ==============================
 # Summary
+# ==============================
 echo "========================================="
 echo "Daily Scrape Complete"
 echo "========================================="
@@ -62,8 +78,9 @@ echo ""
 
 if [ ${#FAILED_SCRAPERS[@]} -eq 0 ]; then
     echo "✓ All scrapers completed successfully"
-    exit 0
 else
     echo "✗ Failed scrapers: ${FAILED_SCRAPERS[*]}"
+    # Optional: Email or Telegram alert
+    # echo "Failed scrapers: ${FAILED_SCRAPERS[*]}" | mail -s "FanbaseHQ Scraper Failures - $(date +%F)" you@example.com
     exit 1
 fi
