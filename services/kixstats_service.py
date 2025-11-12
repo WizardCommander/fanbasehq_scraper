@@ -467,13 +467,16 @@ class KixStatsService:
     @staticmethod
     def get_player_id_from_name(player_name: str) -> str:
         """Convert player name to KixStats player ID format"""
-        # Convert "caitlin clark" -> "caitlin-clark-44"
-        # Note: The number at the end may vary per player
-        normalized = player_name.lower().replace(" ", "-")
+        # Map of known player names to verified KixStats IDs
+        player_id_map = {
+            "caitlin clark": "caitlin-clark-44",
+            "paige bueckers": "paige-bueckers-19",
+            "aja wilson": "aja-wilson",
+            "a'ja wilson": "aja-wilson",  # Handle apostrophe variation
+            "angel reese": "angel-reese-73",
+            "cameron brink": "cameron-brink-41",
+            "napheesa collier": "napheesa-collier",
+        }
 
-        # For now, hardcode Caitlin Clark's ID since we know it
-        if "caitlin" in normalized and "clark" in normalized:
-            return "caitlin-clark-44"
-
-        # For other players, we'd need to research their IDs
-        return f"{normalized}-unknown"
+        normalized = player_name.lower()
+        return player_id_map.get(normalized, f"{normalized.replace(' ', '-')}-unknown")

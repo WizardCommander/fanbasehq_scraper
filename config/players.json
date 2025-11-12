@@ -15,5 +15,71 @@
       "CC22"
     ],
     "twitter_handle": "@CaitlinClark22"
+  },
+  "paige bueckers": {
+    "full_name": "Paige Bueckers",
+    "team": "Dallas Wings",
+    "team_id": "3",
+    "variations": [
+      "Paige Bueckers",
+      "paige bueckers",
+      "Paige Buckets",
+      "P. Bueckers",
+      "PB",
+      "@paigebueckers1"
+    ],
+    "twitter_handle": "@paigebueckers1"
+  },
+  "aja wilson": {
+    "full_name": "A'ja Wilson",
+    "team": "Las Vegas Aces",
+    "team_id": "17",
+    "variations": [
+      "A'ja Wilson",
+      "Aja Wilson",
+      "AJA",
+      "A.J. Wilson",
+      "@_ajawilson22"
+    ],
+    "twitter_handle": "@_ajawilson22"
+  },
+  "angel reese": {
+    "full_name": "Angel Reese",
+    "team": "Chicago Sky",
+    "team_id": "19",
+    "variations": [
+      "Angel Reese",
+      "angel reese",
+      "A. Reese",
+      "@Reese10Angel"
+    ],
+    "twitter_handle": "@Reese10Angel"
+  },
+  "cameron brink": {
+    "full_name": "Cameron Brink",
+    "team": "Los Angeles Sparks",
+    "team_id": "6",
+    "variations": [
+      "Cameron Brink",
+      "cameron brink",
+      "Cam Brink",
+      "C. Brink",
+      "@cameronbrink22"
+    ],
+    "twitter_handle": "@cameronbrink22"
+  },
+  "napheesa collier": {
+    "full_name": "Napheesa Collier",
+    "team": "Minnesota Lynx",
+    "team_id": "8",
+    "variations": [
+      "Napheesa Collier",
+      "napheesa collier",
+      "Phee",
+      "Phee Collier",
+      "N. Collier",
+      "@PHEEsespieces"
+    ],
+    "twitter_handle": "@PHEEsespieces"
   }
 }

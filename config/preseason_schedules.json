@@ -47,7 +47,7 @@
         ]
       },
       "total_dates": 18,
-      "last_updated": "2025-10-13T17:41:51.820893",
+      "last_updated": "2025-11-11T19:35:24.431620",
       "source": "espn_team_api",
       "successful_teams": 12
     },
@@ -76,7 +76,7 @@
         ]
       },
       "total_dates": 7,
-      "last_updated": "2025-10-11T22:12:00.681219",
+      "last_updated": "2025-11-11T19:36:01.371420",
       "source": "espn_team_api",
       "successful_teams": 7
     }
