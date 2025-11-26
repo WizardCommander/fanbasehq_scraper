@@ -130,6 +130,9 @@ class TunnelFitAggregationService:
             [p.social_stats for p in pieces]
         )
 
+        # Determine highest fit confidence among pieces
+        max_fit_confidence = max((p.fit_confidence for p in pieces), default=0.0)
+
         # Create new TunnelFitData with combined information
         return TunnelFitData(
             is_tunnel_fit=base_piece.is_tunnel_fit,
@@ -141,8 +144,10 @@ class TunnelFitAggregationService:
             player_name=base_piece.player_name,
             source_tweet_id=base_piece.source_tweet_id,  # Use best piece's source
             social_stats=combined_social_stats,
+            image_url=base_piece.image_url,
             date_confidence=base_piece.date_confidence,
             date_source=base_piece.date_source,
+            fit_confidence=max_fit_confidence,
         )
 
     def _select_best_piece(self, pieces: List[TunnelFitData]) -> TunnelFitData:

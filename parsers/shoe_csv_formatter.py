@@ -5,8 +5,10 @@ CSV formatter for shoe data to match FanbaseHQ schema exactly
 import csv
 import json
 import logging
+import re
 import uuid
 import urllib.parse
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Optional
@@ -14,7 +16,7 @@ from typing import List, Dict, Optional
 from parsers.ai_parser import ShoeData
 from services.kixstats_service import GameShoeData
 from services.kickscrew_service import KicksCrewService
-from utils.image_service import download_and_encode_shoe_image, _select_best_shoe_image
+from utils.image_service import _select_best_shoe_image
 from config.settings import (
     CSV_ENCODING,
     CLIENT_SUBMITTER_NAME,
@@ -24,6 +26,30 @@ from config.settings import (
 )
 
 logger = logging.getLogger(__name__)
+
+BOOK_PATTERN = re.compile(r"^Book\s+(?P<version>\d+)(?:\s+(?P<color>.+))?$", re.IGNORECASE)
+GT_CUT_PATTERN = re.compile(
+    r"^(?P<model>Air\s+Zoom\s+G\.T\.\s+Cut\s+\d+)(?:\s+(?P<color>.+))?$",
+    re.IGNORECASE,
+)
+LEBRON_PATTERN = re.compile(
+    r"^LeBron\s+(?P<version>[IVXLCDM]+|\d+)(?:\s+(?P<color>.+))?$",
+    re.IGNORECASE,
+)
+
+
+@dataclass
+class GroupedGameShoe:
+    """Aggregated representation of games played in the same shoe/colorway"""
+
+    brand: str
+    model: str
+    color_description: str
+    shoe_name: str
+    player_name: str
+    primary_source_url: str
+    games: List[GameShoeData] = field(default_factory=list)
+    image_urls: List[str] = field(default_factory=list)
 
 
 class ShoeCSVFormatter:
@@ -195,8 +221,14 @@ class ShoeCSVFormatter:
             logger.warning("No game shoes to format to CSV")
             return 0
 
+        grouped_shoes = await self._group_game_shoes(game_shoes)
+
+        if not grouped_shoes:
+            logger.warning("No grouped shoes available after parsing shoe metadata")
+            return 0
+
         logger.info(
-            f"Formatting {len(game_shoes)} game shoes to CSV: {self.output_file}"
+            f"Formatting {len(game_shoes)} game entries as {len(grouped_shoes)} grouped shoes to CSV: {self.output_file}"
         )
 
         try:
@@ -208,57 +240,57 @@ class ShoeCSVFormatter:
                     writer = csv.DictWriter(f, fieldnames=self.CSV_COLUMNS)
                     writer.writeheader()
 
-                    for game_shoe in game_shoes:
-                        row = await self._format_game_shoe_to_row_enhanced(
-                            game_shoe, kickscrew_service
+                    for grouped_shoe in grouped_shoes:
+                        row = await self._format_grouped_game_shoe_to_row(
+                            grouped_shoe, kickscrew_service
                         )
                         writer.writerow(row)
 
             logger.info(
-                f"Successfully wrote {len(game_shoes)} game shoes to {self.output_file}"
+                f"Successfully wrote {len(grouped_shoes)} grouped shoes to {self.output_file}"
             )
-            return len(game_shoes)
+            return len(grouped_shoes)
 
         except Exception as e:
             logger.error(f"Error writing game shoes to CSV: {e}")
             return 0
 
-    async def _format_game_shoe_to_row_enhanced(
-        self, game_shoe: GameShoeData, kickscrew_service: KicksCrewService
+    async def _format_grouped_game_shoe_to_row(
+        self, grouped_shoe: GroupedGameShoe, kickscrew_service: KicksCrewService
     ) -> Dict:
-        """Format a single GameShoeData object to CSV row with KicksCrew enhancement"""
+        """Format an aggregated shoe entry (model + colorway) to CSV row"""
 
         now = datetime.now().isoformat()
         submission_id = str(uuid.uuid4())
 
-        # Extract brand and model from shoe_name
-        brand, model, color_description = await self._parse_shoe_name_enhanced(
-            game_shoe
-        )
+        brand = grouped_shoe.brand
+        model = grouped_shoe.model
+        color_description = grouped_shoe.color_description
 
         # Get KicksCrew pricing data
         kickscrew_data = await self._get_kickscrew_enhanced_data(
-            game_shoe, kickscrew_service
+            grouped_shoe.games[0], kickscrew_service
         )
 
         # Try to get KicksCrew URL even if page data failed
         kickscrew_url = None
-        if not kickscrew_data and game_shoe.shoe_url:
+        representative_game = grouped_shoe.games[0]
+        if not kickscrew_data and representative_game.shoe_url:
             try:
                 kickscrew_url = (
                     await kickscrew_service._extract_kickscrew_url_from_kixstats(
-                        game_shoe.shoe_url
+                        representative_game.shoe_url
                     )
                 )
             except Exception as e:
                 logger.debug(
-                    f"Could not extract KicksCrew URL from {game_shoe.shoe_url}: {e}"
+                    f"Could not extract KicksCrew URL from {representative_game.shoe_url}: {e}"
                 )
 
         # Build enhanced pricing and links
         release_date, price, shop_links = self._build_enhanced_pricing_data(
             kickscrew_data,
-            game_shoe.shoe_name,
+            grouped_shoe.shoe_name,
             kickscrew_url,
             brand,
             model,
@@ -267,40 +299,41 @@ class ShoeCSVFormatter:
         )
 
         # Build game stats JSON
-        game_stats_json = self._build_game_stats_json(game_shoe)
+        game_stats_json = self._build_grouped_game_stats_json(grouped_shoe.games)
+        description = self._build_group_description(grouped_shoe.games)
+        additional_notes = self._build_group_additional_notes(
+            grouped_shoe.games, kickscrew_data
+        )
 
         # Detect shoe characteristics
-        is_signature = self._detect_signature_shoe(game_shoe.shoe_name)
-        is_player_edition = self._detect_player_edition_from_name(game_shoe.shoe_name)
+        is_signature = self._detect_signature_shoe(grouped_shoe.shoe_name)
+        is_player_edition = self._detect_player_edition_from_name(
+            grouped_shoe.shoe_name
+        )
 
+        image_url = self._format_group_image_urls(grouped_shoe.image_urls)
         row = {
             "id": submission_id,
-            "player_name": game_shoe.player_name,
-            "shoe_name": game_shoe.shoe_name,
+            "player_name": grouped_shoe.player_name,
+            "shoe_name": grouped_shoe.shoe_name,
             "brand": brand,
             "model": model,
             "color_description": color_description,
             "release_date": release_date,
-            "image_url": game_shoe.image_url,
-            "image_data": (
-                await download_and_encode_shoe_image(game_shoe.image_url)
-                if game_shoe.image_url
-                else ""
-            ),
+            "image_url": image_url,
+            "image_data": "",
             "price": price,
             "shop_links": shop_links,
             "signature_shoe": is_signature,
             "limited_edition": False,  # Could enhance detection
             "performance_features": "[]",  # Could enhance with shoe database
-            "description": f"Worn in game on {game_shoe.game_date.isoformat()}",
+            "description": description,
             "social_stats": "{}",  # No social data from KixStats
             "source": "KixStats",
-            "source_link": game_shoe.shoe_url,
+            "source_link": grouped_shoe.primary_source_url,
             "photographer": "",
             "photographer_link": "",
-            "additional_notes": self._build_game_additional_notes_enhanced(
-                game_shoe, kickscrew_data
-            ),
+            "additional_notes": additional_notes,
             "status": "approved",  # Default status
             "submitter_name": CLIENT_SUBMITTER_NAME,
             "submitter_email": CLIENT_SUBMITTER_EMAIL,
@@ -313,6 +346,138 @@ class ShoeCSVFormatter:
         }
 
         return row
+
+    async def _group_game_shoes(
+        self, game_shoes: List[GameShoeData]
+    ) -> List[GroupedGameShoe]:
+        """Group individual game shoes by brand + model + colorway"""
+        grouped: Dict[str, GroupedGameShoe] = {}
+        sorted_games = sorted(game_shoes, key=lambda g: g.game_date)
+
+        for game_shoe in sorted_games:
+            brand, model, color_description = await self._parse_shoe_name_enhanced(
+                game_shoe
+            )
+            display_color = color_description.strip()
+            color_key = display_color.lower() if display_color else "unknown"
+            group_key = self._build_group_key(brand, model, color_key)
+
+            group = grouped.get(group_key)
+            if not group:
+                shoe_name = self._compose_shoe_name(
+                    brand, model, display_color, game_shoe.shoe_name
+                )
+                group = GroupedGameShoe(
+                    brand=brand,
+                    model=model,
+                    color_description=display_color,
+                    shoe_name=shoe_name,
+                    player_name=game_shoe.player_name,
+                    primary_source_url=game_shoe.shoe_url,
+                )
+                grouped[group_key] = group
+            else:
+                if not group.color_description and display_color:
+                    group.color_description = display_color
+                if not group.shoe_name:
+                    group.shoe_name = self._compose_shoe_name(
+                        brand, model, display_color, game_shoe.shoe_name
+                    )
+                if not group.primary_source_url and game_shoe.shoe_url:
+                    group.primary_source_url = game_shoe.shoe_url
+
+            group.games.append(game_shoe)
+
+            image_urls = self._extract_image_urls(game_shoe.image_url)
+            if image_urls:
+                group.image_urls.extend(image_urls)
+
+        ordered_groups = sorted(
+            grouped.values(),
+            key=lambda g: g.games[0].game_date if g.games else datetime.max.date(),
+        )
+        return ordered_groups
+
+    def _build_group_key(self, brand: str, model: str, color_key: str) -> str:
+        """Build normalized dictionary key for grouping shoes"""
+        brand_key = (brand or "").strip().lower()
+        model_key = (model or "").strip().lower()
+        color_component = (color_key or "unknown").strip().lower()
+        if not color_component:
+            color_component = "unknown"
+        return f"{brand_key}|{model_key}|{color_component}"
+
+    def _compose_shoe_name(
+        self, brand: str, model: str, color_description: str, fallback: str
+    ) -> str:
+        """Build a readable shoe name from parsed parts"""
+        parts = [part for part in [brand, model] if part]
+        composed = " ".join(parts).strip()
+
+        if color_description:
+            composed = f"{composed} {color_description}".strip()
+
+        return composed if composed else fallback
+
+    def _is_version_indicator(self, token: str) -> bool:
+        """Check if token represents a version number or Roman numeral"""
+        if not token:
+            return False
+
+        stripped = token.replace(".", "").replace("-", "")
+        if not stripped:
+            return False
+
+        if stripped.isdigit():
+            return True
+
+        roman = stripped.upper()
+        return all(ch in "IVXLCDM" for ch in roman)
+
+    def _extract_image_urls(self, raw_image_value: str) -> List[str]:
+        """Parse stored image field into a list of URLs"""
+        if not raw_image_value:
+            return []
+
+        value = raw_image_value.strip()
+        if not value:
+            return []
+
+        if value.startswith("[") and value.endswith("]"):
+            try:
+                urls = json.loads(value)
+                return [
+                    url for url in urls if isinstance(url, str) and url.strip()
+                ]
+            except json.JSONDecodeError:
+                logger.debug("Failed to parse image JSON for shoe entry")
+                return []
+
+        return [value]
+
+    def _format_group_image_urls(self, image_urls: List[str]) -> str:
+        """Return JSON array string of deduplicated image URLs"""
+        if not image_urls:
+            return ""
+
+        seen = set()
+        game_photos = []
+        other_photos = []
+
+        for url in image_urls:
+            if not url or url in seen:
+                continue
+            seen.add(url)
+            if "/img/games/" in url:
+                game_photos.append(url)
+            else:
+                other_photos.append(url)
+
+        ordered_urls = game_photos + other_photos
+        if not ordered_urls:
+            return ""
+
+        return json.dumps(ordered_urls)
 
     async def _get_kickscrew_enhanced_data(
         self, game_shoe: GameShoeData, kickscrew_service: KicksCrewService
@@ -365,80 +530,138 @@ class ShoeCSVFormatter:
 
         return release_date, price, shop_links
 
-    def _build_game_stats_json(self, game_shoe: GameShoeData) -> str:
-        """Build game stats JSON with actual performance data"""
-        game_stats = {
-            "games": [
-                {
-                    "date": game_shoe.game_date.isoformat(),
-                    "points": game_shoe.points,
-                    "rebounds": game_shoe.rebounds,
-                    "assists": game_shoe.assists,
-                    "steals": game_shoe.steals,
-                    "blocks": game_shoe.blocks,
-                    "minutes": game_shoe.minutes,
-                    "opponent": game_shoe.opponent,
-                }
-            ],
-            "summary": {
-                "gamesPlayed": 1,
-                "totalMinutes": game_shoe.minutes,
-                "pointsPerGame": game_shoe.points,
-                "assistsPerGame": game_shoe.assists,
-                "reboundsPerGame": game_shoe.rebounds,
-                "stealsPerGame": game_shoe.steals,
-                "blocksPerGame": game_shoe.blocks,
-                "bestGame": {
-                    "date": game_shoe.game_date.isoformat(),
-                    "points": game_shoe.points,
-                    "rebounds": game_shoe.rebounds,
-                    "assists": game_shoe.assists,
-                    "minutes": game_shoe.minutes,
-                    "opponent": game_shoe.opponent,
-                },
+    def _build_grouped_game_stats_json(
+        self, games: List[GameShoeData]
+    ) -> str:
+        """Build aggregated game stats JSON for grouped shoes"""
+        if not games:
+            return json.dumps({"games": [], "summary": {}})
+
+        games_sorted = sorted(games, key=lambda g: g.game_date)
+        game_entries = [
+            {
+                "date": game.game_date.isoformat(),
+                "points": game.points,
+                "rebounds": game.rebounds,
+                "assists": game.assists,
+                "steals": game.steals,
+                "blocks": game.blocks,
+                "minutes": game.minutes,
+                "opponent": game.opponent,
+            }
+            for game in games_sorted
+        ]
+
+        games_played = len(games_sorted)
+        total_minutes = sum(game.minutes for game in games_sorted)
+        total_points = sum(game.points for game in games_sorted)
+        total_rebounds = sum(game.rebounds for game in games_sorted)
+        total_assists = sum(game.assists for game in games_sorted)
+        total_steals = sum(game.steals for game in games_sorted)
+        total_blocks = sum(game.blocks for game in games_sorted)
+
+        def average(total: int) -> float:
+            return round(total / games_played, 1) if games_played else 0.0
+
+        best_game = max(
+            games_sorted,
+            key=lambda g: (g.points, g.rebounds, g.assists, g.minutes, g.game_date),
+        )
+
+        summary = {
+            "gamesPlayed": games_played,
+            "totalMinutes": total_minutes,
+            "pointsPerGame": average(total_points),
+            "assistsPerGame": average(total_assists),
+            "reboundsPerGame": average(total_rebounds),
+            "stealsPerGame": average(total_steals),
+            "blocksPerGame": average(total_blocks),
+            "bestGame": {
+                "date": best_game.game_date.isoformat(),
+                "points": best_game.points,
+                "rebounds": best_game.rebounds,
+                "assists": best_game.assists,
+                "minutes": best_game.minutes,
+                "opponent": best_game.opponent,
             },
         }
-        return json.dumps(game_stats)
+
+        return json.dumps({"games": game_entries, "summary": summary})
+
+    def _build_group_description(self, games: List[GameShoeData]) -> str:
+        """Describe how often the shoe was worn"""
+        if not games:
+            return ""
+
+        games_sorted = sorted(games, key=lambda g: g.game_date)
+        if len(games_sorted) == 1:
+            game = games_sorted[0]
+            opponent = f" vs {game.opponent}" if game.opponent else ""
+            return f"Worn in game on {game.game_date.isoformat()}{opponent}"
+
+        start = games_sorted[0].game_date.isoformat()
+        end = games_sorted[-1].game_date.isoformat()
+        return f"Worn in {len(games_sorted)} games from {start} to {end}"
 
     def _parse_shoe_name(self, shoe_name: str) -> tuple:
         """Parse shoe name into brand, model, and color components"""
         # Examples:
         # "Nike Kobe 6 Sail All-Star" -> ("Nike", "Kobe 6", "Sail All-Star")
-        # "Nike Kobe 5 Protro Indiana Fever" -> ("Nike", "Kobe 5 Protro", "Indiana Fever")
-        # "Nike Kobe V" -> ("Nike", "Kobe V", "")
+        # "Nike Book 1 1995 All-Star" -> ("Nike", "Book 1", "1995 All-Star")
+        # "Nike Air Zoom G.T. Cut 3 Turbo" -> ("Nike", "Air Zoom G.T. Cut 3", "Turbo")
 
         parts = shoe_name.split()
         if len(parts) < 2:
             return shoe_name, "", ""
 
-        # First part is usually brand
         brand = parts[0]
 
-        # Look for common model patterns, especially Kobe shoes
-        if len(parts) >= 3 and parts[1] == "Kobe":
-            # Handle numeric versions (5, 6, 8, etc.) and Roman numerals (V, VI, VIII, etc.)
+        # Dedicated handling for Kobe lines (numbers and Roman numerals)
+        if len(parts) >= 3 and parts[1].lower() == "kobe":
             if parts[2] in ["V", "VI", "VIII", "5", "6", "8", "9", "10", "11"]:
                 model = f"{parts[1]} {parts[2]}"
                 remaining_parts = parts[3:]
 
-                # Check for "Protro" after the number/numeral
-                if remaining_parts and remaining_parts[0] == "Protro":
+                if remaining_parts and remaining_parts[0].lower() == "protro":
                     model = f"{model} Protro"
-                    color_description = (
-                        " ".join(remaining_parts[1:])
-                        if len(remaining_parts) > 1
-                        else ""
-                    )
-                else:
-                    color_description = " ".join(remaining_parts)
+                    remaining_parts = remaining_parts[1:]
+
+                color_description = " ".join(remaining_parts)
             else:
-                # Non-standard Kobe model naming
                 model = parts[1]
                 color_description = " ".join(parts[2:])
-        else:
-            # Non-Kobe shoes or different brand patterns
-            model = parts[1] if len(parts) > 1 else ""
-            color_description = " ".join(parts[2:]) if len(parts) > 2 else ""
+            return brand, model, color_description
+
+        remaining_text = " ".join(parts[1:]).strip()
+        if not remaining_text:
+            return brand, "", ""
+
+        book_match = BOOK_PATTERN.match(remaining_text)
+        if book_match:
+            version = book_match.group("version")
+            color = (book_match.group("color") or "").strip()
+            return brand, f"Book {version}".strip(), color
+
+        gt_cut_match = GT_CUT_PATTERN.match(remaining_text)
+        if gt_cut_match:
+            model = gt_cut_match.group("model").strip()
+            color = (gt_cut_match.group("color") or "").strip()
+            return brand, model, color
+
+        lebron_match = LEBRON_PATTERN.match(remaining_text)
+        if lebron_match:
+            version = lebron_match.group("version")
+            color = (lebron_match.group("color") or "").strip()
+            return brand, f"LeBron {version}".strip(), color
+
+        # Fallback parsing
+        model = parts[1]
+        color_description = " ".join(parts[2:]) if len(parts) > 2 else ""
+
+        color_parts = color_description.split()
+        if color_parts and self._is_version_indicator(color_parts[0]):
+            model = f"{model} {color_parts[0]}".strip()
+            color_description = " ".join(color_parts[1:])
 
         return brand, model, color_description
 
@@ -565,34 +788,34 @@ class ShoeCSVFormatter:
 
         return any(indicator in shoe_name_lower for indicator in pe_indicators)
 
-    def _build_game_additional_notes(self, game_shoe: GameShoeData) -> str:
-        """Build additional notes field for game shoe data"""
-        notes = []
-
-        # Add game performance summary
-        notes.append(f"Game: {game_shoe.game_date.isoformat()}")
-        notes.append(
-            f"Stats: {game_shoe.points}pts, {game_shoe.rebounds}reb, {game_shoe.assists}ast"
-        )
-        notes.append(f"Minutes: {game_shoe.minutes}")
-
-        # Add data source
-        notes.append("Source: KixStats game-by-game tracking")
-
-        return " | ".join(notes)
-
-    def _build_game_additional_notes_enhanced(
-        self, game_shoe: GameShoeData, kickscrew_data
+    def _build_group_additional_notes(
+        self, games: List[GameShoeData], kickscrew_data
     ) -> str:
-        """Build additional notes field for game shoe data with KicksCrew enhancement"""
+        """Build additional notes field for grouped game shoe data"""
+        if not games:
+            return ""
+
+        games_sorted = sorted(games, key=lambda g: g.game_date)
         notes = []
 
-        # Add game performance summary
-        notes.append(f"Game: {game_shoe.game_date.isoformat()}")
-        notes.append(
-            f"Stats: {game_shoe.points}pts, {game_shoe.rebounds}reb, {game_shoe.assists}ast"
-        )
-        notes.append(f"Minutes: {game_shoe.minutes}")
+        if len(games_sorted) == 1:
+            game = games_sorted[0]
+            notes.append(f"Game: {game.game_date.isoformat()}")
+            notes.append(
+                f"Stats: {game.points}pts, {game.rebounds}reb, {game.assists}ast"
+            )
+        else:
+            notes.append(f"Games: {len(games_sorted)}")
+            notes.append(
+                f"Range: {games_sorted[0].game_date.isoformat()} → {games_sorted[-1].game_date.isoformat()}"
+            )
+            best_game = max(
+                games_sorted,
+                key=lambda g: (g.points, g.rebounds, g.assists, g.minutes, g.game_date),
+            )
+            notes.append(
+                f"Best: {best_game.points}pts, {best_game.rebounds}reb, {best_game.assists}ast"
+            )
 
         # Add data source
         notes.append("Source: KixStats game-by-game tracking")
@@ -602,7 +825,7 @@ class ShoeCSVFormatter:
             if kickscrew_data.release_date:
                 notes.append(f"Release: {kickscrew_data.release_date.isoformat()}")
             if kickscrew_data.retail_price:
-                notes.append(f"Retail: {kickscrew_data.retail_price}")
+                notes.append(f"Retail: {kickscrew_data.retail_price.value}")
             notes.append("Enhanced: KicksCrew data")
         else:
             notes.append("Enhanced: Limited data available")

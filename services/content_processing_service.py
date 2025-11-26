@@ -29,7 +29,7 @@ class ProcessingResult:
     """Generic result of content processing"""
 
     content_items: List[Union[MilestoneData, TunnelFitData, Any]]
-    tweets_processed: int
+    posts_processed: int
     items_found: int
     content_type: ContentType
 
@@ -83,10 +83,10 @@ class ContentProcessingService:
         )
 
         content_items = []
-        tweets_processed = 0
+        posts_processed = 0
 
         for tweet in tweets:
-            tweets_processed += 1
+            posts_processed += 1
 
             # Process single tweet
             item = await self._process_single_tweet(
@@ -124,12 +124,12 @@ class ContentProcessingService:
                 self._log_confidence_scores(item)
 
         logger.info(
-            f"Processed {tweets_processed} tweets, found {len(content_items)} {content_type.value}s"
+            f"Processed {posts_processed} posts, found {len(content_items)} {content_type.value}s"
         )
 
         return ProcessingResult(
             content_items=content_items,
-            tweets_processed=tweets_processed,
+            posts_processed=posts_processed,
             items_found=len(content_items),
             content_type=content_type,
         )

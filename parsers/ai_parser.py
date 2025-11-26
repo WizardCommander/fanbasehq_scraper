@@ -61,6 +61,9 @@ class TunnelFitData:
     player_name: str
     source_tweet_id: TweetId  # ID of the tweet this tunnel fit came from
     social_stats: Dict  # {"views": 3702, "likes": 122, etc.}
+    image_url: Optional[str] = None
+    source_handle: Optional[str] = None
+    source_post_url: Optional[str] = None
     # Internal fields for debugging/processing
     date_confidence: float = 0.0  # 0-1 confidence in extracted date
     fit_confidence: float = 0.0  # 0-1 confidence this is a genuine tunnel fit
@@ -524,20 +527,16 @@ ACCEPT Examples:
             match = re.search(pattern, tweet_text)
             if match:
                 date_str = match.group(1)
-                try:
-                    # Try to parse the found date
-                    if "/" in date_str:
-                        parsed_date = datetime.strptime(date_str, "%m/%d/%Y").date()
-                    elif "-" in date_str:
-                        parsed_date = datetime.strptime(date_str, "%Y-%m-%d").date()
-                    else:
-                        parsed_date = datetime.strptime(date_str, "%B %d, %Y").date()
+                # Try to parse the found date using consolidated parser
+                from utils.date_utils import parse_flexible_date
 
+                parsed_date = parse_flexible_date(date_str, fuzzy=True)
+                if parsed_date:
                     logger.info(
                         f"Extracted date from text: {date_str} -> {parsed_date}"
                     )
                     return parsed_date, "tweet_text", 0.9
-                except ValueError:
+                else:
                     logger.warning(f"Could not parse extracted date: {date_str}")
                     continue
 
@@ -811,7 +810,7 @@ ACCEPT Examples:
 
     def _parse_release_date(self, release_date_str: Optional[str]) -> Optional[date]:
         """
-        Robust parsing of shoe release dates from various formats
+        Robust parsing of shoe release dates from various formats using consolidated parser
 
         Args:
             release_date_str: Date string from AI extraction
@@ -827,43 +826,20 @@ ACCEPT Examples:
         if not cleaned_date or cleaned_date.lower() in ["null", "none", "unknown", ""]:
             return None
 
-        # Common date formats to try
-        date_formats = [
-            "%Y-%m-%d",  # 2025-10-01 (ISO format)
-            "%m/%d/%Y",  # 10/01/2025 (US format)
-            "%m-%d-%Y",  # 10-01-2025
-            "%B %d, %Y",  # October 1, 2025
-            "%b %d, %Y",  # Oct 1, 2025
-            "%Y/%m/%d",  # 2025/10/01
-            "%d/%m/%Y",  # 01/10/2025 (European format)
-            "%Y.%m.%d",  # 2025.10.01
-            "%Y%m%d",  # 20251001 (compact format)
-        ]
+        # Use consolidated date parser
+        from utils.date_utils import parse_flexible_date
 
-        for fmt in date_formats:
-            try:
-                parsed_date = datetime.strptime(cleaned_date, fmt).date()
-                logger.debug(
-                    f"Successfully parsed release date '{release_date_str}' using format '{fmt}'"
-                )
-                return parsed_date
-            except ValueError:
-                continue
-
-        # Try ISO format parsing as fallback
-        try:
-            parsed_date = datetime.fromisoformat(cleaned_date).date()
+        parsed_date = parse_flexible_date(cleaned_date, fuzzy=True)
+        if parsed_date:
             logger.debug(
-                f"Successfully parsed release date '{release_date_str}' using ISO format"
+                f"Successfully parsed release date '{release_date_str}' -> {parsed_date}"
             )
-            return parsed_date
-        except ValueError:
-            pass
+        else:
+            logger.warning(
+                f"Could not parse release date: '{release_date_str}' - no matching format found"
+            )
 
-        logger.warning(
-            f"Could not parse release date: '{release_date_str}' - no matching format found"
-        )
-        return None
+        return parsed_date
 
     def _validate_shoe_dates(
         self, tweet_date: Optional[date], release_date: Optional[date]
@@ -907,5 +883,150 @@ ACCEPT Examples:
 
         return issues
 
+    @staticmethod
+    def create_tunnel_fit_from_vision_analysis(
+        vision_analysis,  # OutfitAnalysis from VisionAnalysisService
+        unified_photo,  # UnifiedPhoto from PhotoAggregationService
+        player_name: str,
+        outfit_items_with_links: List[Dict],  # Pre-processed items with shopping links
+    ) -> TunnelFitData:
+        """
+        Create TunnelFitData from vision analysis results
 
-# Unused functions removed for production - see development branch for utilities
+        Args:
+            vision_analysis: OutfitAnalysis object from VisionAnalysisService
+            unified_photo: UnifiedPhoto object from PhotoAggregationService
+            player_name: Player name
+            outfit_items_with_links: List of outfit item dicts with shopping links already added
+
+        Returns:
+            TunnelFitData object ready for CSV export
+        """
+        from utils.branded_types import tweet_id as create_tweet_id
+
+        # Extract event context from caption or use generic
+        event = AIParser._extract_event_from_caption(
+            unified_photo.caption, unified_photo.posted_at
+        )
+
+        # Extract location if mentioned in caption
+        location = AIParser._extract_location_from_caption(unified_photo.caption)
+
+        # Determine type: "gameday" if tunnel fit keywords present, else "events"
+        fit_type = AIParser._determine_fit_type(unified_photo.caption)
+
+        # Build social stats from unified photo engagement
+        engagement = unified_photo.engagement or {}
+        views = engagement.get("views")
+        if views is None:
+            views = engagement.get("likes", 0)
+        social_stats = {
+            "views": views or 0,
+            "likes": engagement.get("likes", 0),
+            "retweets": engagement.get("retweets", 0),
+            "replies": engagement.get("comments", 0),
+            "quotes": engagement.get("quotes", 0),
+        }
+
+        return TunnelFitData(
+            is_tunnel_fit=vision_analysis.is_tunnel_fit,
+            event=event,
+            date=unified_photo.posted_at.date(),
+            type=fit_type,
+            outfit_details=outfit_items_with_links,
+            location=location,
+            player_name=player_name,
+            source_tweet_id=create_tweet_id(unified_photo.photo_id),
+            social_stats=social_stats,
+            image_url=unified_photo.image_url,
+            source_handle=unified_photo.source_handle,
+            source_post_url=unified_photo.post_url,
+            date_confidence=0.9,  # High confidence from photo timestamp
+            fit_confidence=vision_analysis.confidence,
+            date_source="photo_timestamp",
+        )
+
+    @staticmethod
+    def _extract_event_from_caption(caption: str, posted_at: datetime) -> str:
+        """
+        Extract event context from photo caption
+
+        Args:
+            caption: Photo caption text
+            posted_at: When photo was posted
+
+        Returns:
+            Event string (e.g., "Pregame Arrival | Nov 18, 2024")
+        """
+        # Check for game mentions in caption
+        game_keywords = ["vs", "versus", "at", "game", "pregame", "tunnel"]
+        caption_lower = caption.lower() if caption else ""
+
+        # Try to extract opponent from caption
+        if " vs " in caption_lower or " vs. " in caption_lower:
+            # Extract opponent name around "vs"
+            # Example: "Fever vs Sky" -> "Fever vs Sky"
+            match = re.search(
+                r"([A-Za-z]+)\s+vs\.?\s+([A-Za-z]+)", caption, re.IGNORECASE
+            )
+            if match:
+                return f"{match.group(1)} vs {match.group(2)} | {posted_at.strftime('%b %d, %Y')}"
+
+        # Fallback: generic event with date
+        if any(keyword in caption_lower for keyword in game_keywords):
+            return f"Game Day Arrival | {posted_at.strftime('%b %d, %Y')}"
+        else:
+            return f"Event Arrival | {posted_at.strftime('%b %d, %Y')}"
+
+    @staticmethod
+    def _extract_location_from_caption(caption: str) -> str:
+        """
+        Extract location from caption if mentioned
+
+        Args:
+            caption: Photo caption text
+
+        Returns:
+            Location string or empty string
+        """
+        if not caption:
+            return ""
+
+        # Look for city, state patterns
+        # Example: "Indianapolis, IN" or "New York, NY"
+        match = re.search(r"([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*),\s*([A-Z]{2})", caption)
+        if match:
+            return f"{match.group(1)}, {match.group(2)}"
+
+        return ""
+
+    @staticmethod
+    def _determine_fit_type(caption: str) -> str:
+        """
+        Determine fit type from caption keywords
+
+        Args:
+            caption: Photo caption text
+
+        Returns:
+            "gameday" or "events"
+        """
+        if not caption:
+            return "events"
+
+        caption_lower = caption.lower()
+
+        gameday_keywords = [
+            "game",
+            "pregame",
+            "tunnel",
+            "arena",
+            "vs",
+            "versus",
+            "matchup",
+        ]
+
+        if any(keyword in caption_lower for keyword in gameday_keywords):
+            return "gameday"
+        else:
+            return "events"

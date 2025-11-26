@@ -22,7 +22,7 @@ class ScraperRunMetrics:
     scraper_type: str  # milestones, shoes, tunnel-fits
     timestamp: str
     items_found: int
-    tweets_processed: int
+    posts_processed: int
     duration_seconds: float
     errors: List[str]
     success: bool
@@ -41,7 +41,7 @@ class MonitoringService:
         self,
         scraper_type: str,
         items_found: int,
-        tweets_processed: int,
+        posts_processed: int,
         duration_seconds: float,
         errors: List[str],
         success: bool,
@@ -54,7 +54,7 @@ class MonitoringService:
         Args:
             scraper_type: Type of scraper (milestones, shoes, tunnel-fits)
             items_found: Number of items scraped
-            tweets_processed: Number of tweets processed
+            posts_processed: Number of posts processed (Twitter + Instagram)
             duration_seconds: Duration of scraper run in seconds
             errors: List of error messages
             success: Whether the scraper succeeded
@@ -66,7 +66,7 @@ class MonitoringService:
                 scraper_type=scraper_type,
                 timestamp=datetime.now().isoformat(),
                 items_found=items_found,
-                tweets_processed=tweets_processed,
+                posts_processed=posts_processed,
                 duration_seconds=duration_seconds,
                 errors=errors,
                 success=success,
@@ -84,7 +84,7 @@ class MonitoringService:
             self._save_metrics(all_metrics)
 
             logger.info(
-                f"Logged {scraper_type} scraper run: {items_found} items, {tweets_processed} tweets, {duration_seconds:.1f}s"
+                f"Logged {scraper_type} scraper run: {items_found} items, {posts_processed} posts, {duration_seconds:.1f}s"
             )
 
         except Exception as e:
@@ -120,7 +120,7 @@ class MonitoringService:
                 "successful_runs": 0,
                 "failed_runs": 0,
                 "total_items": 0,
-                "total_tweets": 0,
+                "total_posts": 0,
                 "total_duration": 0,
                 "scraper_types": {},
             }
@@ -130,7 +130,7 @@ class MonitoringService:
         successful_runs = sum(1 for m in daily_metrics if m["success"])
         failed_runs = total_runs - successful_runs
         total_items = sum(m["items_found"] for m in daily_metrics)
-        total_tweets = sum(m["tweets_processed"] for m in daily_metrics)
+        total_posts = sum(m["posts_processed"] for m in daily_metrics)
         total_duration = sum(m["duration_seconds"] for m in daily_metrics)
 
         # Group by scraper type
@@ -141,13 +141,13 @@ class MonitoringService:
                 scraper_types[scraper_type] = {
                     "runs": 0,
                     "items": 0,
-                    "tweets": 0,
+                    "posts": 0,
                     "success": 0,
                 }
 
             scraper_types[scraper_type]["runs"] += 1
             scraper_types[scraper_type]["items"] += metric["items_found"]
-            scraper_types[scraper_type]["tweets"] += metric["tweets_processed"]
+            scraper_types[scraper_type]["posts"] += metric["posts_processed"]
             if metric["success"]:
                 scraper_types[scraper_type]["success"] += 1
 
@@ -157,7 +157,7 @@ class MonitoringService:
             "successful_runs": successful_runs,
             "failed_runs": failed_runs,
             "total_items": total_items,
-            "total_tweets": total_tweets,
+            "total_posts": total_posts,
             "total_duration": round(total_duration, 1),
             "scraper_types": scraper_types,
         }

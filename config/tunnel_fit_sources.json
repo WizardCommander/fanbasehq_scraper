@@ -1,0 +1,38 @@
+{
+  "caitlin clark": {
+    "instagram_handle": "@caitlinclark22",
+    "twitter_style_accounts": ["@caitlinclarksty"],
+    "priority": "twitter",
+    "notes": "Has dedicated style account @caitlinclarksty - prioritize this curated source"
+  },
+  "paige bueckers": {
+    "instagram_handle": "paigebueckers",
+    "twitter_style_accounts": [],
+    "priority": "instagram",
+    "notes": "No dedicated style account - use official Instagram"
+  },
+  "aja wilson": {
+    "instagram_handle": "aja22wilson",
+    "twitter_style_accounts": [],
+    "priority": "instagram",
+    "notes": "No dedicated style account - use official Instagram"
+  },
+  "angel reese": {
+    "instagram_handle": "angelreese5",
+    "twitter_style_accounts": [],
+    "priority": "instagram",
+    "notes": "No dedicated style account - use official Instagram"
+  },
+  "cameron brink": {
+    "instagram_handle": "cameronbrink22",
+    "twitter_style_accounts": [],
+    "priority": "instagram",
+    "notes": "No dedicated style account - use official Instagram"
+  },
+  "napheesa collier": {
+    "instagram_handle": "napheesa24",
+    "twitter_style_accounts": [],
+    "priority": "instagram",
+    "notes": "No dedicated style account - use official Instagram"
+  }
+}

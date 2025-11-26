@@ -94,17 +94,17 @@ class TunnelFitCSVFormatter:
         # Handle date formatting
         date_string = tunnel_fit.date.strftime("%Y-%m-%d") if tunnel_fit.date else ""
 
+        image_url = tunnel_fit.image_url or (tweet.images[0] if tweet.images else "")
+
         return {
             "id": str(submission_id.value) if submission_id else "",
             "player_name": tunnel_fit.player_name or player_name,
             "event": tunnel_fit.event,
             "date": date_string,
             "type": tunnel_fit.type,
-            "image_url": (
-                tweet.images[0] if tweet.images else ""
-            ),  # Real pbs.twimg.com URLs via universal image extraction system
+            "image_url": image_url,
             "image_data": (
-                await download_and_encode_image(tweet.images[0]) if tweet.images else ""
+                await download_and_encode_image(image_url) if image_url else ""
             ),
             "outfit_details": outfit_details_json,
             "social_stats": social_stats_json,
@@ -124,29 +124,158 @@ class TunnelFitCSVFormatter:
             "submitter_email": CLIENT_SUBMITTER_EMAIL,
         }
 
+    async def _format_tunnel_fit_from_sources(
+        self,
+        tunnel_fit: TunnelFitData,
+        player_name: str,
+        tweet_sources: Dict[str, Dict[str, str]],
+        submission_id: Optional[SubmissionId] = None,
+    ) -> Dict[str, str]:
+        """
+        Convert tunnel fit to CSV row using tweet_sources dict (for multi-source flow)
+
+        Args:
+            tunnel_fit: Parsed tunnel fit data
+            player_name: Player name
+            tweet_sources: Dict mapping photo_id -> metadata dict (handle/post_url/image_url)
+            submission_id: Optional ID for the submission
+
+        Returns:
+            Dictionary representing CSV row
+        """
+        now = datetime.now()
+        timestamp = now.strftime("%Y-%m-%d %H:%M:%S.%f%z")
+
+        # Format outfit details as JSON string
+        outfit_details_json = (
+            json.dumps(tunnel_fit.outfit_details) if tunnel_fit.outfit_details else "[]"
+        )
+
+        # Format social stats as JSON string
+        social_stats_json = (
+            json.dumps(tunnel_fit.social_stats) if tunnel_fit.social_stats else "{}"
+        )
+
+        # Handle date formatting
+        date_string = tunnel_fit.date.strftime("%Y-%m-%d") if tunnel_fit.date else ""
+
+        source_info = tweet_sources.get(tunnel_fit.source_tweet_id.value)
+        if not source_info:
+            logger.warning(
+                "Missing source metadata for tunnel fit photo %s",
+                tunnel_fit.source_tweet_id.value,
+            )
+            source_info = {}
+        raw_handle = (
+            source_info.get("handle")
+            or tunnel_fit.source_handle
+            or ""
+        ).strip()
+        if raw_handle and not raw_handle.startswith("@"):
+            source = f"@{raw_handle}"
+        else:
+            source = raw_handle
+        if not source:
+            logger.warning(
+                "Missing source handle metadata for tunnel fit photo %s",
+                tunnel_fit.source_tweet_id.value,
+            )
+
+        source_link = source_info.get("post_url") or tunnel_fit.source_post_url or ""
+        if not source_link:
+            logger.warning(
+                "Missing post_url metadata for tunnel fit photo %s",
+                tunnel_fit.source_tweet_id.value,
+            )
+
+        image_url = tunnel_fit.image_url or source_info.get("image_url", "")
+        if not image_url:
+            logger.warning(
+                "Missing image_url for tunnel fit photo %s",
+                tunnel_fit.source_tweet_id.value,
+            )
+        image_data = (
+            await download_and_encode_image(image_url) if image_url else ""
+        )
+
+        return {
+            "id": str(submission_id.value) if submission_id else "",
+            "player_name": tunnel_fit.player_name or player_name,
+            "event": tunnel_fit.event,
+            "date": date_string,
+            "type": tunnel_fit.type,
+            "image_url": image_url,
+            "image_data": image_data,
+            "outfit_details": outfit_details_json,
+            "social_stats": social_stats_json,
+            "source": source,
+            "source_link": source_link,
+            "photographer": "",
+            "photographer_link": "",
+            "additional_notes": f"Source: {tunnel_fit.date_source}, Fit confidence: {tunnel_fit.fit_confidence:.2f}",
+            "submitter_name": CLIENT_SUBMITTER_NAME,
+            "user_id": CLIENT_USER_ID,
+            "status": "pending",
+            "created_at": timestamp,
+            "updated_at": timestamp,
+            "original_submission_id": CLIENT_ORIGINAL_SUBMISSION_ID,
+            "location": tunnel_fit.location,
+            "style_category": "",  # Could be populated from outfit analysis
+            "submitter_email": CLIENT_SUBMITTER_EMAIL,
+        }
+
     async def write_tunnel_fits_to_csv(
         self,
         tunnel_fits: List[TunnelFitData],
-        tweets: List[ScrapedTweet],
-        player_name: str,
+        tweets: Optional[List[ScrapedTweet]] = None,
+        player_name: str = "",
+        tweet_sources: Optional[Dict[str, Dict[str, str]]] = None,
     ) -> None:
         """
         Write tunnel fits to CSV file
 
         Args:
             tunnel_fits: List of parsed tunnel fit data
-            tweets: List of corresponding tweet data
+            tweets: List of corresponding tweet data (optional for backward compatibility)
             player_name: Player name
+            tweet_sources: Dict mapping photo_id -> metadata dict (multi-source flow)
         """
-        if len(tunnel_fits) != len(tweets):
-            raise ValueError("Tunnel fits and tweets lists must have same length")
-
-        rows = []
-        for i, (tunnel_fit, tweet) in enumerate(zip(tunnel_fits, tweets), 1):
-            row = await self.format_tunnel_fit_to_csv_row(
-                tunnel_fit, tweet, player_name, submission_id=submission_id(i)
+        # Validate mutually exclusive parameters
+        if tweets is not None and tweet_sources is not None:
+            raise ValueError(
+                "Cannot provide both 'tweets' and 'tweet_sources'. "
+                "Use 'tweets' for Twitter-only flow or 'tweet_sources' for multi-source flow."
             )
-            rows.append(row)
+        if tweets is None and tweet_sources is None:
+            raise ValueError(
+                "Must provide either 'tweets' (Twitter flow) or 'tweet_sources' (multi-source flow)."
+            )
+
+        # Backward compatibility: if tweets provided, use them
+        if tweets is not None:
+            if len(tunnel_fits) != len(tweets):
+                raise ValueError("Tunnel fits and tweets lists must have same length")
+
+            rows = []
+            for i, (tunnel_fit, tweet) in enumerate(zip(tunnel_fits, tweets), 1):
+                row = await self.format_tunnel_fit_to_csv_row(
+                    tunnel_fit, tweet, player_name, submission_id=submission_id(i)
+                )
+                rows.append(row)
+        else:
+            # Multi-source flow: use tweet_sources dict
+            if tweet_sources is None:
+                tweet_sources = {}
+
+            rows = []
+            for i, tunnel_fit in enumerate(tunnel_fits, 1):
+                row = await self._format_tunnel_fit_from_sources(
+                    tunnel_fit,
+                    player_name,
+                    tweet_sources,
+                    submission_id=submission_id(i),
+                )
+                rows.append(row)
 
         # Write to CSV
         with open(self.output_file, "w", newline="", encoding=CSV_ENCODING) as f:

@@ -8,7 +8,6 @@ import argparse
 import asyncio
 import sys
 import logging
-import os
 import json
 from datetime import date
 from pathlib import Path
@@ -188,7 +187,7 @@ async def scrape_single_player(
         monitoring_service.log_scraper_run(
             scraper_type=content_type,
             items_found=results.get(items_key, 0),
-            tweets_processed=results.get("tweets_processed", 0),
+            posts_processed=results.get("posts_processed", 0),
             duration_seconds=duration,
             errors=errors,
             success=success,
@@ -203,7 +202,7 @@ async def scrape_single_player(
                 "Player": player_name,
                 "Scraper Type": content_type,
                 "Items Found": items_found,
-                "Tweets Processed": results.get("tweets_processed", 0),
+                "Posts Processed": results.get("posts_processed", 0),
                 "Duration": f"{duration:.1f}s",
             }
 
@@ -230,7 +229,7 @@ async def scrape_single_player(
         monitoring_service.log_scraper_run(
             scraper_type=content_type,
             items_found=0,
-            tweets_processed=0,
+            posts_processed=0,
             duration_seconds=duration,
             errors=errors,
             success=False,

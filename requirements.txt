@@ -28,6 +28,11 @@ python-levenshtein>=0.12.0
 # Email delivery via SendGrid HTTP API (more reliable than SMTP)
 sendgrid>=6.11.0
 
+# Tunnel Fits Multi-Player Expansion Dependencies
+oxylabs>=1.0.0  # Oxylabs SDK for Google Lens visual search (replaces SerpApi)
+Pillow>=10.0.0  # Image processing for quality scoring
+imagehash>=4.3.0  # Perceptual image hashing for deduplication
+
 # Development (optional)
 pytest>=7.0.0
 black>=23.0.0

@@ -362,14 +362,10 @@ class MilestoneDateResolver:
         return None, ""
 
     def _parse_date_string(self, date_str: str) -> Optional[date]:
-        """Parse date string into date object"""
-        from utils.date_utils import parse_date
+        """Parse date string into date object using consolidated date parser"""
+        from utils.date_utils import parse_flexible_date
 
-        try:
-            return parse_date(date_str, strict=False)
-        except ValueError as e:
-            logger.debug(f"Failed to parse date string '{date_str}': {e}")
-            return None
+        return parse_flexible_date(date_str, fuzzy=True)
 
 
 def create_date_resolver() -> MilestoneDateResolver:

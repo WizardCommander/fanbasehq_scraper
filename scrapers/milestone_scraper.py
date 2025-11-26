@@ -121,7 +121,7 @@ class MilestoneScraper:
 
         # Step 3: Process tweets into milestones
         milestone_batches = []
-        total_tweets_processed = 0
+        total_posts_processed = 0
 
         for search_result in search_results:
             logger.info(
@@ -142,7 +142,7 @@ class MilestoneScraper:
                 )
                 logger.info(f"Found {processing_result.items_found} milestones")
 
-            total_tweets_processed += processing_result.tweets_processed
+            total_posts_processed += processing_result.posts_processed
 
         # Step 4: Aggregate and deduplicate results
         if milestone_batches:
@@ -164,13 +164,13 @@ class MilestoneScraper:
 
             return self._create_results_summary(
                 len(aggregation_result.milestones),
-                total_tweets_processed,
+                total_posts_processed,
                 aggregation_result.milestones,
             )
         else:
             logger.warning("No milestones found after processing")
             await self._write_empty_results()
-            return self._create_results_summary(0, total_tweets_processed, [])
+            return self._create_results_summary(0, total_posts_processed, [])
 
     async def _setup_team_information(self) -> None:
         """Setup team information for the player"""
@@ -214,14 +214,14 @@ class MilestoneScraper:
             logger.error(f"Error writing empty results: {e}")
 
     def _create_results_summary(
-        self, milestones_count: int, tweets_processed: int, milestones: List
+        self, milestones_count: int, posts_processed: int, milestones: List
     ) -> Dict:
         """Create results summary dictionary"""
         return {
             "player": self.config.player_display_name,
             "date_range": f"{self.config.start_date} to {self.config.end_date}",
             "milestones_found": milestones_count,
-            "tweets_processed": tweets_processed,
+            "posts_processed": posts_processed,
             "output_file": self.config.output_file,
             "milestones": milestones,
         }

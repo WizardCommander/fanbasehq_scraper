@@ -20,7 +20,7 @@ class SearchResult:
     account: str
     variation: str
     tweets: List[ScrapedTweet]
-    tweets_processed: int
+    posts_processed: int
 
 
 class TwitterSearchService:
@@ -76,7 +76,7 @@ class TwitterSearchService:
                                 account=account,
                                 variation=variation,
                                 tweets=tweets,
-                                tweets_processed=len(tweets),
+                                posts_processed=len(tweets),
                             )
                         )
 
